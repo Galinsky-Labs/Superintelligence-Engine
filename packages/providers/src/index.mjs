@@ -86,7 +86,8 @@ export class ProviderAdapters {
  async poll({providerId,providerTaskId,signal}){
   const entry=this.adapters.get(providerId);if(!entry)throw new ProviderError('unknown_provider');
   if(typeof providerTaskId!=='string'||!providerTaskId.trim())throw new ProviderError('invalid_task_id');
-  return validateAsyncReceipt(await entry.adapter.poll({providerTaskId,signal}));
+  const credential=entry.secretRef?await this.secrets.get(entry.secretRef):undefined;
+  return validateAsyncReceipt(await entry.adapter.poll({providerTaskId,credential,signal}));
  }
  async cancel({providerId,providerTaskId,signal}){
   const entry=this.adapters.get(providerId);if(!entry)throw new ProviderError('unknown_provider');
