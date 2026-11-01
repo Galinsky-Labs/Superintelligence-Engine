@@ -55,7 +55,11 @@ No automatic repair, retry, schema coercion or ignored unknown rules occur.
 
 Structured token fragments are not passed to `onToken`. Only a fully validated
 envelope may reach `ProjectService.createArtifact`, as `application/json` with
-its actual body hash, immutable source inventory and policy digest. The real
+its actual body hash, immutable source metadata inventory and policy digest.
+The artifact inventory omits complete source text: it retains identifiers,
+principal scope, URI and content hash. Full text remains in the principal-bound
+validation snapshot and selected exact citation quotes remain explicit output.
+This prevents project exports from silently copying all uncited retrieved text. The real
 provider usage/receipt, reservation fencing and replay behavior remain in force.
 If validation fails after dispatch, no artifact is written; the existing dispatch
 is `needs_reconciliation`, the reservation remains held and replay cannot generate

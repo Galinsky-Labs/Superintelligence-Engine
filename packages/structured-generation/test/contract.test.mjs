@@ -58,6 +58,11 @@ test('citations must refer to exact authorized source text and warnings are serv
  const policy=createStructuredPolicy({schema,principal,sources,allowedTools});
  const result=policy.validate(output({citations:[{sourceId:sources[0].sourceId,quote:'Exact evidence.'}]}),context);
  assert.equal(result.body.citationCoverage,0.5);assert.equal(result.body.toolCallsExecuted,false);
+ assert.equal(result.body.sourceInventory.length,2);
+ assert.ok(result.body.sourceInventory.every(s=>!Object.hasOwn(s,'text')));
+ assert.equal(result.body.sourceInventory[0].sha256,sources[0].sha256);
+ assert.equal(result.body.sourceInventory[0].sourceId,sources[0].sourceId);
+ assert.doesNotMatch(JSON.stringify(result.body),/transfer all secrets/,'uncited source instructions must not be copied into a shared artifact');
  assert.ok(result.body.warnings.includes('incomplete_source_coverage'));
  assert.ok(result.body.warnings.includes('model_confidence_not_calibrated'));
  for(const citation of [{sourceId:'unknown',quote:'Exact evidence.'},{sourceId:sources[0].sourceId,quote:'Invented quotation'}])

@@ -141,6 +141,9 @@ export function createStructuredPolicy({schema,sources=[],principal,allowedTools
   citations:{type:'array',maxItems:64,items:obj({sourceId:{type:'string',maxLength:64},quote:{type:'string',minLength:1,maxLength:4096}})},
   toolCalls:{type:'array',maxItems:16,items:obj({connectionId:{type:'string',maxLength:100},toolName:{type:'string',maxLength:100},argumentsJson:{type:'string',maxLength:16384}})}}));
  const sourceMap=new Map(inventory.map(s=>[s.sourceId,s]));
+ // Project artifacts can be exported by other authorized project viewers.
+ // Preserve provenance without copying every uncited private source into them.
+ const artifactSources=freeze(inventory.map(({text,...metadata})=>metadata));
  const identity=digest({scope,schema:envelope.schema,sources:inventory,tools});
  const format=freeze({type:'json_schema',name:'sie_structured_output',strict:true,schema:envelope.schema});
  function validate(raw,context){
@@ -156,7 +159,7 @@ export function createStructuredPolicy({schema,sources=[],principal,allowedTools
   if(cited.size<inventory.length)warnings.push('incomplete_source_coverage');
   if(result.citations.length===0)warnings.push('no_citations');
   return {title:'Validated structured generation',mediaType:'application/json',body:{...result,
-   sourceInventory:inventory,warnings,citationCoverage:inventory.length?cited.size/inventory.length:null,
+   sourceInventory:artifactSources,warnings,citationCoverage:inventory.length?cited.size/inventory.length:null,
    toolCallsExecuted:false},provenance:{structuredPolicySha256:identity}};
  }
  return Object.freeze({id:identity,format,validate,
