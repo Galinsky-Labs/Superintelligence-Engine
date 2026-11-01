@@ -45,3 +45,27 @@ test('text calls reject enormous prompts, unbounded output and disabled backgrou
  await assert.rejects(adapter.submit(),e=>e.code==='async_not_supported');
  assert.equal(calls,0);
 });
+
+test('structured format requires explicit model capability and forwards only a validated closed schema',async()=>{
+ let body,calls=0;
+ const fetchImpl=async(url,request)=>{calls++;body=JSON.parse(request.body);return new Response(sse([
+  {type:'response.output_text.delta',delta:'{"answer":"ok"}'},complete]),{headers:{'content-type':'text/event-stream'}})};
+ const textFormat={type:'json_schema',name:'answer',strict:true,schema:{type:'object',properties:{answer:{type:'string'}},required:['answer'],additionalProperties:false}};
+ const disabled=new OpenAIResponsesTextAdapter({modelId:'approved-model',fetchImpl});
+ await assert.rejects(async()=>{for await(const e of disabled.stream({operation:'text.generate',input:'return JSON',credential:'synthetic',options:{textFormat}})){}},e=>e.code==='structured_format_denied');
+ assert.equal(calls,0);
+ const enabled=new OpenAIResponsesTextAdapter({modelId:'approved-model',fetchImpl,structuredOutputs:true});
+ const events=[];for await(const e of enabled.stream({operation:'text.generate',input:'return JSON',credential:'synthetic',options:{textFormat}}))events.push(e);
+ assert.deepEqual(body.text.format,textFormat);assert.equal(body.tools,undefined);assert.equal(body.store,false);
+ assert.equal(events.at(-1).type,'complete');
+ const bad={...textFormat,schema:{...textFormat.schema,pattern:'unsupported'}};
+ await assert.rejects(async()=>{for await(const e of enabled.stream({operation:'text.generate',input:'JSON',credential:'synthetic',options:{textFormat:bad}})){}},e=>e.code==='structured_schema_invalid');
+ assert.equal(calls,1);
+});
+
+test('explicit provider refusal cannot become a completed structured result',async()=>{
+ const adapter=new OpenAIResponsesTextAdapter({modelId:'approved-model',fetchImpl:async()=>new Response(sse([
+  {type:'response.refusal.delta',delta:'No'},complete]),{headers:{'content-type':'text/event-stream'}})});
+ await assert.rejects(async()=>{for await(const e of adapter.stream({operation:'text.generate',input:'hello',credential:'synthetic'})){}},e=>e.code==='provider_refused');
+});
+

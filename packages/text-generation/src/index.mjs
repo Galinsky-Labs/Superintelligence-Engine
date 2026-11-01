@@ -44,18 +44,22 @@ async function transaction(pool,operation){
  }finally{db.release()}
 }
 export class TextGenerationService {
- constructor({pool,providers,pricing,dispatchEnabled=false,onAudit=()=>{}}={}){
+ constructor({pool,providers,pricing,dispatchEnabled=false,onAudit=()=>{},outputPolicy}={}){
   if(!pool||typeof pool.connect!=='function'||typeof pool.query!=='function')throw new TypeError('Trusted PostgreSQL pool required');
   if(!providers||typeof providers.stream!=='function')throw new TypeError('Authorized provider registry required');
   if(typeof dispatchEnabled!=='boolean')throw new TypeError('Explicit dispatch gate required');
   this.pool=pool;this.providers=providers;this.pricing=tariff(pricing);
   this.dispatchEnabled=dispatchEnabled;this.onAudit=onAudit;
+  if(outputPolicy!==undefined&&(!Object.isFrozen(outputPolicy)||typeof outputPolicy.id!=='string'||
+   typeof outputPolicy.assertContext!=='function'||typeof outputPolicy.validate!=='function'||!outputPolicy.format))throw new TypeError('Trusted immutable output policy required');
+  this.outputPolicy=outputPolicy;
   this.projects=new ProjectService({pool});this.budgets=new BudgetLedger({pool});
  }
  async generate({context,projectId,reservationId,providerId,operation,prompt,region,commercial=false,maxOutputTokens=512,signal,onToken}={}){
   check(this.dispatchEnabled,'dispatch_disabled','Live provider generation must be explicitly authorized');
   const tenantId=context?.tenantId,identityId=context?.session?.identityId;
   assertUUID(tenantId,'tenant');assertUUID(identityId,'identity');assertUUID(projectId,'project');assertUUID(reservationId,'reservation');
+  this.outputPolicy?.assertContext(context);
   check(typeof providerId==='string'&&IDENT.test(providerId),'invalid_provider');
   check(['text.generate','reason.generate'].includes(operation),'invalid_operation');
   check(typeof prompt==='string'&&!!prompt.trim()&&prompt.length<=64000,'invalid_prompt');
@@ -67,7 +71,8 @@ export class TextGenerationService {
   check(Buffer.byteLength(prompt,'utf8')<=this.pricing.inputTokenCeiling,'input_ceiling','Text exceeds conservative input token ceiling');
   const maximum=microCost(this.pricing,this.pricing.inputTokenCeiling,maxOutputTokens);
   check(maximum>0n,'invalid_pricing');
-  const requestSha=sha(JSON.stringify({prompt,providerId,operation,region,commercial,maxOutputTokens,pricing:this.pricing}));
+  const requestSha=sha(JSON.stringify({prompt,providerId,operation,region,commercial,maxOutputTokens,pricing:this.pricing,
+   ...(this.outputPolicy?{outputPolicySha256:this.outputPolicy.id}:{})}));
   const record=await transaction(this.pool,async db=>{
    const member=await db.query("SELECT 1 FROM projects p JOIN memberships m ON m.tenant_id=p.tenant_id WHERE p.tenant_id=$1 AND p.id=$2 AND m.identity_id=$3 AND m.role IN ('owner','admin','member')",[tenantId,projectId,identityId]);
    check(member.rowCount===1,'project_forbidden','Writer membership required');
@@ -93,13 +98,14 @@ export class TextGenerationService {
   const dispatchId=record.row.id;
   let fullText='',usage=null,completion=null;
   try{
-   const stream=this.providers.stream({providerId,operation,tenantId,reservationId,input:{prompt},region,commercial,signal,options:{maxOutputTokens}});
+   const stream=this.providers.stream({providerId,operation,tenantId,reservationId,input:{prompt},region,commercial,signal,
+    options:{maxOutputTokens,...(this.outputPolicy?{textFormat:this.outputPolicy.format}:{})}});
    for await(const event of stream){
     check(!signal?.aborted,'cancelled','Provider request cancelled');
     if(event?.type==='token'){
      check(typeof event.text==='string'&&fullText.length+event.text.length<=125000,'output_limit');
      fullText+=event.text;
-     try{await onToken?.(event.text)}catch{} // UI disconnect is not a reason to repeat a billable call.
+     if(!this.outputPolicy)try{await onToken?.(event.text)}catch{} // Never stream unvalidated structured fragments to downstream consumers.
     }else if(event?.type==='usage'){
      check(usage===null,'duplicate_usage');
      integer(event.inputUnits,'actual input tokens',0,250000);
@@ -115,10 +121,16 @@ export class TextGenerationService {
    const actual=microCost(this.pricing,usage.inputTokens,usage.outputTokens);
    check(actual<=maximum,'reservation_insufficient');
    check(Buffer.byteLength(JSON.stringify(fullText),'utf8')<250000,'output_limit');
+   let output={title:'Generated text',mediaType:'text/plain',body:fullText,provenance:{}};
+   if(this.outputPolicy){
+    try{output=this.outputPolicy.validate(fullText,context)}catch{throw new TextGenerationError('structured_output_rejected','Structured output did not pass validation')}
+   }
+   check(!signal?.aborted,'cancelled');
+   check(Buffer.byteLength(JSON.stringify(output.body),'utf8')<250000,'output_limit');
    const artifact=await this.projects.createArtifact(context,projectId,{
-    title:'Generated text',mediaType:'text/plain',checksum:sha(JSON.stringify(fullText)),body:fullText,
+    title:output.title,mediaType:output.mediaType,checksum:sha(JSON.stringify(output.body)),body:output.body,
     rights:{commercial},
-    provenance:{source:'authorized-provider',dispatchId,providerId,operation,
+    provenance:{...output.provenance,source:'authorized-provider',dispatchId,providerId,operation,
      responseId:completion.responseId,modelRevision:completion.modelRevision,
      inputTokens:usage.inputTokens,outputTokens:usage.outputTokens}
    });
@@ -143,3 +155,4 @@ export class TextGenerationService {
   check(r.rowCount===1,'not_found');return publicRecord(r.rows[0]);
  }
 }
+
