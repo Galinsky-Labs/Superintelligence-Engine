@@ -74,7 +74,7 @@ export class MediaLifecycle {
   check(providerId,PROVIDER);
   const secret=await this.secrets(providerId);
   if(!verifyProviderCallback({body,timestamp,signature,secret,nowMs:this.clock()}))fail('invalid_signature');
-  let event;try{event=JSON.parse(body.toString('utf8'))}catch{fail('invalid_callback')}
+  let event;try{event=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body))}catch{fail('invalid_callback')}
   if(!event||typeof event!=='object'||Array.isArray(event))fail('invalid_callback');
   check(event.callbackId,ID);check(event.providerTaskId,ID);
   if(!['queued','running',...terminal].includes(event.state))fail('invalid_callback');
