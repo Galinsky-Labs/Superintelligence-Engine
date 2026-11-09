@@ -75,6 +75,8 @@ export function validateSpec(spec,{maxNodes=MAX_NODES}={}){
   return {title:typeof spec.title==='string'?spec.title.slice(0,256):'',nodes,inputs:isObject(spec.inputs)?spec.inputs:{},budgetCeilingMicro:ceiling};
 }
 
+export function canonical(v){if(Array.isArray(v))return '['+v.map(canonical).join(',')+']';if(isObject(v))return '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';return JSON.stringify(v);}
+const lockRun=(db,runId)=>db.query('SELECT id FROM runs WHERE id=$1 FOR UPDATE',[runId]);
 function serializeRun(r){return {id:r.id,projectId:r.project_id,kind:r.kind,title:r.title,status:r.status,budgetCeilingMicro:Number(r.budget_ceiling_micro),spentMicro:Number(r.spent_micro),
   output:r.output,error:r.error,createdBy:r.created_by,scheduleId:r.schedule_id,createdAt:r.created_at,startedAt:r.started_at,finishedAt:r.finished_at,updatedAt:r.updated_at}}
 function serializeNode(n){return {key:n.node_key,type:n.type,state:n.state,dependsOn:n.depends_on,parent:n.parent_key,attempt:n.attempt,maxAttempts:n.max_attempts,
@@ -98,7 +100,7 @@ export class RunStore {
       check((await db.query('SELECT 1 FROM projects WHERE tenant_id=$1 AND id=$2 AND archived_at IS NULL',[tenantId,projectId])).rowCount,'project_not_found',404);
       if(idempotencyKey){
         const prev=(await db.query('SELECT * FROM runs WHERE tenant_id=$1 AND idempotency_key=$2',[tenantId,idempotencyKey])).rows[0];
-        if(prev){check(sha256(prev.spec)===sha256(v),'idempotency_conflict',409);return {...serializeRun(prev),replayed:true};}
+        if(prev){check(sha256(canonical(prev.spec))===sha256(canonical(JSON.parse(JSON.stringify(v)))),'idempotency_conflict',409);return {...serializeRun(prev),replayed:true};}
       }
       const run=(await db.query(`INSERT INTO runs(tenant_id,project_id,created_by,kind,title,spec,budget_ceiling_micro,idempotency_key,schedule_id,status)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'queued') RETURNING *`,[tenantId,projectId,principal.identityId,kind,(title||v.title||kind).slice(0,256),JSON.stringify(v),v.budgetCeilingMicro,idempotencyKey||null,scheduleId])).rows[0];
@@ -188,6 +190,18 @@ export class RunStore {
     }
     return out;
   }
+  /** Claim one specific ready node (inline execution by the API process for streaming generation). */
+  async claimNode(runId,nodeKey,{workerId,leaseSeconds=60}){
+    const r=await this.db.query(`UPDATE run_nodes SET state='running',attempt=attempt+1,lease_owner=$3,lease_token=gen_random_uuid(),lease_expires_at=now()+($4::int*interval '1 second'),started_at=coalesce(started_at,now()),updated_at=now()
+      WHERE run_id=$1 AND node_key=$2 AND state='ready' RETURNING *`,[runId,nodeKey,workerId,leaseSeconds]);
+    if(!r.rows[0])return null;
+    const run=(await this.db.query('SELECT * FROM runs WHERE id=$1',[runId])).rows[0];
+    await tx(this.db,async db=>{
+      await this.event(db,run,'node.started',{attempt:r.rows[0].attempt,worker:workerId},nodeKey);
+      await db.query("UPDATE runs SET status='running',started_at=coalesce(started_at,now()),updated_at=now() WHERE id=$1 AND status='queued'",[runId]);
+    });
+    return {node:r.rows[0],run};
+  }
   async heartbeat(node,leaseSeconds=60){
     const r=await this.db.query(`UPDATE run_nodes n SET lease_expires_at=now()+($3::int*interval '1 second') FROM runs r WHERE n.id=$1 AND n.lease_token=$2 AND n.state='running' AND r.id=n.run_id RETURNING r.status`,[node.id,node.lease_token,leaseSeconds]);
     return r.rows[0]?(r.rows[0].status==='cancelled'?'cancelled':'ok'):'lost';
@@ -202,6 +216,7 @@ export class RunStore {
   }
   async complete(node,{output=null,artifactId=null,costMicro=0,spawn=null}){
     return tx(this.db,async db=>{
+      await lockRun(db,node.run_id);
       const r=await db.query(`UPDATE run_nodes SET state='succeeded',output=$3,artifact_id=$4,cost_micro=cost_micro+$5,error=NULL,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,finished_at=now(),updated_at=now()
         WHERE id=$1 AND lease_token=$2 AND state='running' RETURNING *`,[node.id,node.lease_token,JSON.stringify(output),artifactId,costMicro]);
       if(!r.rowCount)return false; // cancelled or lease lost
@@ -223,6 +238,7 @@ export class RunStore {
   }
   async failNode(node,{error,retryable=false,delaySeconds}){
     return tx(this.db,async db=>{
+      await lockRun(db,node.run_id);
       const cur=(await db.query("SELECT * FROM run_nodes WHERE id=$1 AND lease_token=$2 AND state='running' FOR UPDATE",[node.id,node.lease_token])).rows[0];
       if(!cur)return 'lost';
       const run=(await db.query('SELECT * FROM runs WHERE id=$1',[node.run_id])).rows[0];
@@ -239,6 +255,7 @@ export class RunStore {
   /** Node needs a human decision; it stays parked with its checkpoint until approved/denied. */
   async park(node,{approval,checkpoint}){
     return tx(this.db,async db=>{
+      await lockRun(db,node.run_id);
       const r=await db.query("UPDATE run_nodes SET state='awaiting_approval',checkpoint=coalesce($3,checkpoint),lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,attempt=greatest(attempt-1,0),updated_at=now() WHERE id=$1 AND lease_token=$2 AND state='running' RETURNING *",
         [node.id,node.lease_token,checkpoint===undefined?null:JSON.stringify(checkpoint)]);
       if(!r.rowCount)return null;
@@ -255,16 +272,22 @@ export class RunStore {
 
   /** Lease recovery after worker crash: running nodes whose lease expired go back to ready (or fail). */
   async recoverExpired(){
-    const r=await this.db.query(`UPDATE run_nodes SET state=CASE WHEN attempt<max_attempts THEN 'ready' ELSE 'failed' END,
-        error=CASE WHEN attempt<max_attempts THEN 'lease_expired_recovered' ELSE 'lease_expired_attempts_exhausted' END,
-        lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,next_attempt_at=now(),updated_at=now()
-      WHERE state='running' AND lease_expires_at<now() RETURNING run_id,node_key,state`);
-    for(const n of r.rows){
-      const run=(await this.db.query('SELECT * FROM runs WHERE id=$1',[n.run_id])).rows[0];
-      await tx(this.db,async db=>{await this.event(db,run,'node.recovered',{state:n.state},n.node_key);await this.promote(db,run);});
-      log.warn('node_lease_recovered',{runId:n.run_id,node:n.node_key,state:n.state});
+    const expired=(await this.db.query("SELECT id,run_id FROM run_nodes WHERE state='running' AND lease_expires_at<now() LIMIT 500")).rows;
+    let n=0;
+    for(const x of expired){
+      await tx(this.db,async db=>{
+        await lockRun(db,x.run_id);
+        const r=(await db.query(`UPDATE run_nodes SET state=CASE WHEN attempt<max_attempts THEN 'ready' ELSE 'failed' END,
+            error=CASE WHEN attempt<max_attempts THEN 'lease_expired_recovered' ELSE 'lease_expired_attempts_exhausted' END,
+            lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,next_attempt_at=now(),updated_at=now()
+          WHERE id=$1 AND state='running' AND lease_expires_at<now() RETURNING node_key,state`,[x.id])).rows[0];
+        if(!r)return;
+        const run=(await db.query('SELECT * FROM runs WHERE id=$1',[x.run_id])).rows[0];
+        await this.event(db,run,'node.recovered',{state:r.state},r.node_key);await this.promote(db,run);n++;
+        log.warn('node_lease_recovered',{runId:x.run_id,node:r.node_key,state:r.state});
+      });
     }
-    return r.rowCount;
+    return n;
   }
 
   // ---------- user side ----------
@@ -329,7 +352,7 @@ export class RunStore {
       if(new Date(a.expires_at)<new Date()){await db.query("UPDATE approvals SET status='expired' WHERE id=$1",[a.id]);fail('approval_expired',409);}
       const status=decision==='approve'?'approved':'denied';
       await db.query('UPDATE approvals SET status=$2,decided_by=$3,decided_at=now(),decision_note=$4 WHERE id=$1',[a.id,status,principal.identityId,note||null]);
-      const run=(await db.query('SELECT * FROM runs WHERE id=$1',[a.run_id])).rows[0];
+      const run=(await db.query('SELECT * FROM runs WHERE id=$1 FOR UPDATE',[a.run_id])).rows[0];
       const node=(await db.query('SELECT * FROM run_nodes WHERE run_id=$1 AND node_key=$2 FOR UPDATE',[a.run_id,a.node_key])).rows[0];
       await this.event(db,run,'approval.'+status,{approvalId:a.id,by:principal.identityId,note:note||null},a.node_key);
       if(node?.state==='awaiting_approval'){

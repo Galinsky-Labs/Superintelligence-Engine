@@ -37,7 +37,7 @@ export class Executor {
   services(){return {projects:this.projects,assets:this.assets,sandbox:this.sandbox,workspace:this.workspace,connections:this.connections,egress:this.egress};}
 
   /** Execute one claimed node to a terminal/parked state. Never throws for node-level failures. */
-  async execute({node,run,onDelta,heartbeatMs=10000,leaseSeconds=60}){
+  async execute({node,run,onDelta,heartbeatMs=Number(process.env.SIE_HEARTBEAT_MS||2000),leaseSeconds=60}){
     const ac=new AbortController();
     const hb=setInterval(async()=>{
       try{const s=await this.runs.heartbeat(node,leaseSeconds);if(s!=='ok')ac.abort(new Error(s));}catch(e){log.warn('heartbeat_failed',{message:e.message});}

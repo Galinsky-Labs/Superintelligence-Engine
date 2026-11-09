@@ -276,13 +276,12 @@ function fromSchema(schema,seed,path='value',depth=0){
   if(schema.enum)return schema.enum[Buffer.from(sha256(seed+path),'hex')[0]%schema.enum.length];
   switch(schema.type){
     case 'object':return Object.fromEntries(Object.entries(schema.properties||{}).map(([k,v])=>[k,fromSchema(v,seed,path+'.'+k,depth+1)]));
-    case 'array':{const n=Math.max(schema.minItems||0,Math.min(schema.maxItems??3,3));return Array.from({length:n},(_,i)=>fromSchema(schema.items,seed,path+'['+i+']',depth+1));}
+    case 'array':{if(/dependsOn$/.test(path)&&!schema.minItems)return [];const n=Math.max(schema.minItems||0,Math.min(schema.maxItems??3,3));return Array.from({length:n},(_,i)=>fromSchema(schema.items,seed,path+'['+i+']',depth+1));}
     case 'integer':return Math.max(schema.minimum??0,Math.min(schema.maximum??100,Buffer.from(sha256(seed+path),'hex')[0]));
     case 'number':return Math.max(schema.minimum??0,Math.min(schema.maximum??1,Buffer.from(sha256(seed+path),'hex')[0]/255));
     case 'boolean':return Buffer.from(sha256(seed+path),'hex')[0]%2===0;
     case 'null':return null;
     case 'string':{
-      if(/(^|\.)dependsOn\[/.test(path))return null;
       const leaf=path.replace(/\[\d+\]/g,m=>'-'+(Number(m.slice(1,-1))+1)).split('.').pop();
       let s=`${leaf} (simulated ${sha256(seed+path).slice(0,6)})`;
       if(schema.maxLength)s=s.slice(0,schema.maxLength);

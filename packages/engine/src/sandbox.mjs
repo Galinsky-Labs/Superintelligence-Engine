@@ -24,7 +24,9 @@ function detectBackend(pref=process.env.SIE_SANDBOX||'auto'){
   if(pref==='disabled')return null;
   const has=cmd=>spawnSync('sh',['-c',`command -v ${cmd}`],{stdio:'ignore'}).status===0;
   if((pref==='auto'||pref==='bwrap')&&has('bwrap')){
-    const probe=spawnSync('bwrap',['--unshare-all','--die-with-parent','--ro-bind','/usr','/usr','--symlink','usr/bin','/bin','--symlink','usr/lib','/lib','--proc','/proc','--dev','/dev','/bin/true'],{stdio:'ignore',timeout:5000});
+    const args=['--unshare-all','--die-with-parent','--ro-bind','/usr','/usr'];
+    for(const d of ['lib','lib64','bin','sbin']){const p='/'+d;if(!existsSync(p))continue;if(lstatSync(p).isSymbolicLink())args.push('--symlink',`usr/${d}`,p);else args.push('--ro-bind',p,p);}
+    const probe=spawnSync('bwrap',[...args,'--proc','/proc','--dev','/dev','/usr/bin/true'],{stdio:'ignore',timeout:5000});
     if(probe.status===0)return 'bwrap';
   }
   if((pref==='auto'||pref==='docker')&&has('docker')&&spawnSync('docker',['info'],{stdio:'ignore',timeout:5000}).status===0)return 'docker';
