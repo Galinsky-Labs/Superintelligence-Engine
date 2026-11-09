@@ -1,4 +1,5 @@
-FROM node:22-bookworm-slim
+ARG BASE_IMAGE=node:22-bookworm-slim
+FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap util-linux git python3 ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /srv/engine
 COPY package.json package-lock.json* ./

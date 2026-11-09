@@ -32,3 +32,14 @@ jobs:
       - run: bash db/scripts/backup_restore_test.sh
         env: {DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sie_test}
       - run: npm run release:dry-run
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t sie-engine:ci .
+      - name: Container serves health (without a database it must report not-ready)
+        run: |
+          docker run -d --name sie -p 8080:8080 -e DATABASE_URL=postgres://none@127.0.0.1:1/none --entrypoint node sie-engine:ci apps/api/src/server.mjs
+          for i in $(seq 1 30); do curl -sf localhost:8080/health && break; sleep 1; done
+          curl -sf localhost:8080/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/ready)" != "200"
