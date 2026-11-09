@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Superintelligence Engine</title>
+<link rel="stylesheet" href="/app/styles.css">
+<script type="module" src="/app/app.js"></script>
+</head>
+<body>
+<div id="login" class="login hidden">
+  <div class="card login-card">
+    <h1>Superintelligence Engine</h1>
+    <p class="muted">Sign in with an API token, your organization's single sign-on, or (development only) a local handle.</p>
+    <form id="token-form" class="stack">
+      <label>API token<input id="token-input" type="password" autocomplete="off" placeholder="sie_…"></label>
+      <button type="submit">Use token</button>
+    </form>
+    <div id="sso-box" class="stack hidden">
+      <a class="button secondary" href="/auth/command/start">Sign in with SSO (Command Center)</a>
+      <a class="button secondary" href="/auth/academy/start">Sign in with SSO (Academy)</a>
+    </div>
+    <form id="dev-form" class="stack hidden">
+      <label>Development handle<input id="dev-handle" placeholder="alice" pattern="[a-z0-9][a-z0-9._-]{1,62}"></label>
+      <button type="submit" class="secondary">Development sign-in</button>
+    </form>
+    <p id="login-error" class="error"></p>
+  </div>
+</div>
+<div id="shell" class="shell hidden">
+  <header class="topbar">
+    <strong>Superintelligence Engine</strong>
+    <select id="tenant-select" aria-label="Workspace"></select>
+    <span id="caps" class="muted small"></span>
+    <span class="spacer"></span>
+    <span id="me" class="muted small"></span>
+    <button id="logout" class="secondary small">Sign out</button>
+  </header>
+  <nav class="sidebar">
+    <a href="#/projects" data-nav="projects">Projects</a>
+    <a href="#/runs" data-nav="runs">Runs</a>
+    <a href="#/approvals" data-nav="approvals">Approvals <span id="approval-count" class="badge hidden"></span></a>
+    <a href="#/providers" data-nav="providers">Models &amp; budget</a>
+    <a href="#/connections" data-nav="connections">Integrations</a>
+    <a href="#/schedules" data-nav="schedules">Schedules</a>
+    <a href="#/team" data-nav="team">Team &amp; tokens</a>
+  </nav>
+  <main id="view" class="view" tabindex="-1"></main>
+</div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+</body>
+</html>

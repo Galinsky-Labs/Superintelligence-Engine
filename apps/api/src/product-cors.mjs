@@ -16,11 +16,12 @@ export function normalizeProductOrigins(config={}){
  const extra=(config.extra||[]).map(validOrigin).filter(Boolean);
  return {academy,command,extra};
 }
+function sameHost(origin,host){try{return Boolean(host)&&new URL(origin).host===host}catch{return false}}
 function reply(res,status,code){res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({code}));}
 export function handleProductCors(req,res,pathname,{origins=normalizeProductOrigins({academy:process.env.ACADEMY_PUBLIC_ORIGIN,command:process.env.COMMAND_PUBLIC_ORIGIN,extra:(process.env.SIE_CONSOLE_ORIGINS||'').split(',').filter(Boolean)}),selfOrigin}={}){
  const origin=req.headers.origin;
  if(!origin&&req.method!=='OPTIONS')return false;
- if(origin&&selfOrigin&&origin===selfOrigin&&req.method!=='OPTIONS')return false; // same-origin console
+ if(origin&&req.method!=='OPTIONS'&&((selfOrigin&&origin===selfOrigin)||sameHost(origin,req.headers.host)))return false; // same-origin console
  const authProduct=/^\/auth\/(academy|command)\//.exec(pathname)?.[1];
  const product=authProduct||req.headers['x-sie-product'];
  const expected=product==='academy'?origins.academy:product==='command'?origins.command:null;
@@ -40,8 +41,9 @@ export function handleProductCors(req,res,pathname,{origins=normalizeProductOrig
  }
  return false;
 }
-export function isAllowedBrowserOrigin(origin,origins,selfOrigin){
+export function isAllowedBrowserOrigin(origin,origins,selfOrigin,host){
  if(!origin)return false;
+ if(sameHost(origin,host))return true;
  if(selfOrigin&&origin===selfOrigin)return true;
  return [origins.academy,origins.command,...(origins.extra||[])].filter(Boolean).includes(origin);
 }

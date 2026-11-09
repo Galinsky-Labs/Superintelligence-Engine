@@ -308,7 +308,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
         principal=await e.identity.authenticate(req);
         if(!principal&&!r.opts.public)return send(res,401,{code:'authentication_required',message:'Provide a Bearer API token or a valid session'});
         // Cookie-authenticated browser writes must come from a registered origin (CSRF defense).
-        if(principal?.via==='oidc'&&!['GET','HEAD'].includes(req.method)&&!isAllowedBrowserOrigin(req.headers.origin,origins,selfOrigin))return send(res,403,{code:'origin_not_allowed'});
+        if(principal?.via==='oidc'&&!['GET','HEAD'].includes(req.method)&&!isAllowedBrowserOrigin(req.headers.origin,origins,selfOrigin,req.headers.host))return send(res,403,{code:'origin_not_allowed'});
       }
       let tenant=null;
       if(r.opts.tenant){tenant=req.headers['x-tenant-id']||url.searchParams.get('tenant');if(!isUUID(tenant))return send(res,400,{code:'tenant_required',message:'Set the X-Tenant-Id header'});}
