@@ -4,7 +4,7 @@
 //   docker: `docker run --network none --read-only --memory ... --pids-limit ...` per execution.
 // There is deliberately no unisolated fallback: if no backend is available execution is refused.
 import {spawn,spawnSync} from 'node:child_process';
-import {mkdtemp,mkdir,writeFile,readFile,readdir,stat,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,readdir,stat,rm,chown,chmod} from 'node:fs/promises';
 import {existsSync,realpathSync,lstatSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,dirname,relative,sep} from 'node:path';
@@ -33,6 +33,8 @@ function detectBackend(pref=process.env.SIE_SANDBOX||'auto'){
   return null;
 }
 
+let uidCounter=0;
+async function chownTree(dir,uid){await chown(dir,uid,uid);for(const e of await readdir(dir,{withFileTypes:true})){const f=join(dir,e.name);if(e.isDirectory())await chownTree(f,uid);else await chown(f,uid,uid);}}
 export class Sandbox {
   constructor({backend,dockerImage=process.env.SIE_SANDBOX_IMAGE||'node:22-bookworm'}={}){
     this.backend=backend===undefined?detectBackend():backend;this.image=dockerImage;
@@ -81,7 +83,15 @@ export class Sandbox {
       }
       const cpu=cpuSeconds||Math.max(1,Math.ceil(timeoutMs/1000));
       let bin,args;
-      if(this.backend==='bwrap'){bin='bwrap';args=[...this.bwrapArgs(work,{memoryMb,cpuSeconds:cpu,maxProcs}),...argv];}
+      if(this.backend==='bwrap'){
+        bin='bwrap';args=[...this.bwrapArgs(work,{memoryMb,cpuSeconds:cpu,maxProcs}),...argv];
+        // When the engine runs as root, each execution gets its own unprivileged host UID so
+        // process-count limits apply and nothing inside can act with host-root identity.
+        if(process.getuid?.()===0&&process.env.SIE_SANDBOX_DROP_UID!=='0'){
+          const uid=200000+(uidCounter++%60000);await chownTree(work,uid);await chmod(work,0o700);
+          args=['--reuid='+uid,'--regid='+uid,'--clear-groups','--inh-caps=-all','bwrap',...args];bin='setpriv';
+        }
+      }
       else{bin='docker';args=['run','--rm','-i','--network','none','--read-only','--tmpfs','/tmp:rw,size=64m','--memory',memoryMb+'m','--pids-limit',String(maxProcs),
         '--cpus','1','--cap-drop','ALL','--security-opt','no-new-privileges','-v',work+':/work','-w','/work','--user','1000:1000',this.image,...argv.map(x=>x===process.execPath?'node':x)];}
       const started=Date.now();

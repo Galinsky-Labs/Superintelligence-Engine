@@ -63,7 +63,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
   const worker=inlineWorker??(env.SIE_INLINE_WORKER==='1'?new Worker(e):null);
   const routes=[];
   const route=(method,pattern,handler,opts={})=>{
-    const keys=[];const rx=new RegExp('^'+pattern.replace(/:(\w+)\*/g,(_,k)=>{keys.push(k);return '(.+)'}).replace(/:(\w+)/g,(_,k)=>{keys.push(k);return '([^/]+)'})+'$');
+    const keys=[];const rx=new RegExp('^'+pattern.replace(/:(\w+)(\*?)/g,(_,k,star)=>{keys.push(k);return star?'(.+)':'([^/]+)'})+'$');
     routes.push({method,rx,keys,handler,opts});
   };
   // ---------------- public ----------------

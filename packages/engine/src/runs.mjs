@@ -260,7 +260,7 @@ export class RunStore {
         [node.id,node.lease_token,checkpoint===undefined?null:JSON.stringify(checkpoint)]);
       if(!r.rowCount)return null;
       const run=(await db.query('SELECT * FROM runs WHERE id=$1',[node.run_id])).rows[0];
-      const reqSha=sha256(approval.request);
+      const reqSha=sha256(canonical(approval.request));
       const a=(await db.query(`INSERT INTO approvals(tenant_id,run_id,node_key,action,effect,summary,request,request_sha256,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT(run_id,node_key,request_sha256) DO UPDATE SET status=CASE WHEN approvals.status IN ('denied','expired','consumed') THEN 'pending' ELSE approvals.status END,decided_by=CASE WHEN approvals.status IN ('denied','expired','consumed') THEN NULL ELSE approvals.decided_by END,expires_at=now()+interval '7 days' RETURNING *`,
         [run.tenant_id,run.id,node.node_key,approval.action.slice(0,120),approval.effect,String(approval.summary||'').slice(0,4000),JSON.stringify(approval.request),reqSha,run.created_by])).rows[0];
@@ -375,7 +375,7 @@ export class RunStore {
   }
   /** Consume an approved request for (run,node,request). Returns 'approved' | 'denied' | null. */
   async approvalState(runId,nodeKey,request){
-    const r=await this.db.query('SELECT id,status FROM approvals WHERE run_id=$1 AND node_key=$2 AND request_sha256=$3',[runId,nodeKey,sha256(request)]);
+    const r=await this.db.query('SELECT id,status FROM approvals WHERE run_id=$1 AND node_key=$2 AND request_sha256=$3',[runId,nodeKey,sha256(canonical(request))]);
     return r.rows[0]||null;
   }
   async consumeApproval(id){const r=await this.db.query("UPDATE approvals SET status='consumed' WHERE id=$1 AND status='approved'",[id]);return r.rowCount===1;}
