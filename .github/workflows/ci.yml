@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
@@ -27,13 +27,13 @@ jobs:
       - run: npm install --ignore-scripts --no-audit --no-fund
       - run: npm run build
       - run: psql "$TEST_ADMIN_DATABASE_URL" -c 'CREATE DATABASE sie_test' && DATABASE_URL=$TEST_DATABASE_URL node scripts/migrate.mjs
-      - run: npx -y playwright@1.56.1 install --with-deps chromium && npm install --no-save playwright@1.56.1
+      - run: npm install --no-save --ignore-scripts playwright@1.56.1 && npx playwright install --with-deps chromium
       - run: npm test
       - run: bash db/scripts/backup_restore_test.sh
         env: {DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sie_test}
       - run: npm run release:dry-run
   container:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t sie-engine:ci .
