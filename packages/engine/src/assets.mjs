@@ -28,11 +28,30 @@ export async function sniff(bytes,declared){
   return TEXTUAL.has(d)?d:detected;
 }
 
-export class AssetStore {
-  constructor({dir=process.env.SIE_STORAGE_DIR||'./var/storage',system,clamSocket=process.env.CLAMAV_SOCKET}={}){
-    this.dir=join(dir,'assets');this.db=system;this.scanner=clamSocket?new ClamAVStreamScanner({socketPath:clamSocket}):null;
-  }
+/** Local filesystem blob backend (content-addressed). */
+class FileBlobs {
+  constructor(dir){this.dir=join(dir,'assets');}
   path(hash){return join(this.dir,hash.slice(0,2),hash.slice(2,4),hash);}
+  async put(hash,bytes){const p=this.path(hash);await mkdir(dirname(p),{recursive:true});try{await stat(p)}catch{const tmp=p+'.'+process.pid+'.'+Date.now()+'.tmp';await writeFile(tmp,bytes);await rename(tmp,p);}return 'local:'+hash;}
+  async get(hash){return readFile(this.path(hash));}
+}
+/** S3-compatible object storage backend (AWS S3, R2, MinIO, ...). Objects are private; access is via the API only. */
+class S3Blobs {
+  constructor({bucket,region,endpoint,prefix='assets/'}){
+    this.bucket=bucket;this.prefix=prefix;
+    this.ready=import('@aws-sdk/client-s3').then(m=>{this.m=m;this.client=new m.S3Client({region:region||'us-east-1',...(endpoint?{endpoint,forcePathStyle:true}:{})});});
+  }
+  async put(hash,bytes,mediaType){await this.ready;
+    try{await this.client.send(new this.m.HeadObjectCommand({Bucket:this.bucket,Key:this.prefix+hash}));}
+    catch{await this.client.send(new this.m.PutObjectCommand({Bucket:this.bucket,Key:this.prefix+hash,Body:bytes,ContentType:mediaType,ServerSideEncryption:process.env.SIE_S3_SSE||undefined}));}
+    return 's3:'+hash;}
+  async get(hash){await this.ready;const r=await this.client.send(new this.m.GetObjectCommand({Bucket:this.bucket,Key:this.prefix+hash}));return Buffer.from(await r.Body.transformToByteArray());}
+}
+
+export class AssetStore {
+  constructor({dir=process.env.SIE_STORAGE_DIR||'./var/storage',system,clamSocket=process.env.CLAMAV_SOCKET,s3=process.env.SIE_S3_BUCKET?{bucket:process.env.SIE_S3_BUCKET,region:process.env.SIE_S3_REGION,endpoint:process.env.SIE_S3_ENDPOINT}:null}={}){
+    this.blobs=s3?new S3Blobs(s3):new FileBlobs(dir);this.db=system;this.scanner=clamSocket?new ClamAVStreamScanner({socketPath:clamSocket}):null;
+  }
   /** Store bytes for a tenant project after verification. Returns asset metadata. */
   async put({tenantId,projectId,bytes,mediaType,origin='upload',expires=null}){
     requireUUID(tenantId,'tenant');requireUUID(projectId,'project');
@@ -43,18 +62,17 @@ export class AssetStore {
       const v=await this.scanner.scan(Readable.from([bytes]));
       if(!v.clean)throw new EngineError('malware_detected',422);
     }
-    const hash=sha256(bytes),p=this.path(hash);
-    await mkdir(dirname(p),{recursive:true});
-    try{await stat(p)}catch{const tmp=p+'.'+process.pid+'.tmp';await writeFile(tmp,bytes);await rename(tmp,p);}
+    const hash=sha256(bytes);
+    const key=await this.blobs.put(hash,bytes,verified);
     const r=await this.db.query(`INSERT INTO asset_metadata(tenant_id,project_id,storage_key,media_type,sha256,size_bytes,scan_state,verified_at,expires_at)
-      VALUES($1,$2,$3,$4,$5,$6,'clean',now(),$7) RETURNING id`,[tenantId,projectId,'local:'+hash,verified,hash,bytes.length,expires]);
+      VALUES($1,$2,$3,$4,$5,$6,'clean',now(),$7) RETURNING id`,[tenantId,projectId,key,verified,hash,bytes.length,expires]);
     return {id:r.rows[0].id,mediaType:verified,sha256:hash,sizeBytes:bytes.length,origin};
   }
   async read({tenantId,assetId}){
     requireUUID(assetId,'asset');
     const r=await this.db.query("SELECT storage_key,media_type,sha256,size_bytes FROM asset_metadata WHERE tenant_id=$1 AND id=$2 AND scan_state='clean'",[tenantId,assetId]);
     const a=r.rows[0];check(a,'asset_not_found',404);
-    const bytes=await readFile(this.path(a.sha256));
+    const bytes=await this.blobs.get(a.sha256);
     check(sha256(bytes)===a.sha256,'asset_integrity_failure',500);
     return {bytes,mediaType:a.media_type,sha256:a.sha256,sizeBytes:Number(a.size_bytes)};
   }

@@ -35,6 +35,17 @@ async function json(req,limit){
 function sseOpen(res){res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-store, no-transform','X-Accel-Buffering':'no',Connection:'keep-alive',...SECURITY_HEADERS});res.flushHeaders?.();}
 function sse(res,event,data,id){if(res.writableEnded)return;res.write(`${id!==undefined?`id: ${id}\n`:''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);}
 
+/** Per-key token bucket (per API process). */
+class RateLimiter {
+  constructor(perMinute){this.rate=perMinute;this.b=new Map();}
+  take(key,cost=1){
+    if(!this.rate)return true;const now=Date.now();let e=this.b.get(key);
+    if(!e){e={t:this.rate,at:now};this.b.set(key,e);if(this.b.size>50000)this.b.clear();}
+    e.t=Math.min(this.rate,e.t+(now-e.at)*this.rate/60000);e.at=now;
+    if(e.t<cost)return false;e.t-=cost;return true;
+  }
+}
+
 /** Postgres LISTEN fan-out for live run events. */
 class EventHub {
   constructor(url){this.url=url;this.subs=new Map();this.client=null;this.ready=null;}
@@ -62,6 +73,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
   const apiWorkerId=`api-${process.pid}-${randomUUID().slice(0,6)}`;
   const worker=inlineWorker??(env.SIE_INLINE_WORKER==='1'?new Worker(e):null);
   const routes=[];
+  const limiter=new RateLimiter(Number(env.SIE_RATE_LIMIT_PER_MINUTE??1200)),publicLimiter=new RateLimiter(Number(env.SIE_PUBLIC_RATE_LIMIT_PER_MINUTE??120));
   const route=(method,pattern,handler,opts={})=>{
     const keys=[];const rx=new RegExp('^'+pattern.replace(/:(\w+)(\*?)/g,(_,k,star)=>{keys.push(k);return star?'(.+)':'([^/]+)'})+'$');
     routes.push({method,rx,keys,handler,opts});
@@ -304,9 +316,12 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
       matchedRoute=r.rx.source;
       const m=r.rx.exec(path);const params=Object.fromEntries(r.keys.map((k,i)=>[k,decodeURIComponent(m[i+1])]));
       let principal=null;
+      const ip=(env.SIE_TRUST_PROXY==='1'&&String(req.headers['x-forwarded-for']||'').split(',')[0].trim())||req.socket.remoteAddress||'?';
+      if(r.opts.public&&!r.opts.optionalAuth&&req.method!=='GET'&&!publicLimiter.take('ip:'+ip))return send(res,429,{code:'rate_limited',message:'Too many requests'},{'Retry-After':'30'});
       if(!r.opts.public||r.opts.optionalAuth){
         principal=await e.identity.authenticate(req);
         if(!principal&&!r.opts.public)return send(res,401,{code:'authentication_required',message:'Provide a Bearer API token or a valid session'});
+        if(principal&&!limiter.take('id:'+principal.identityId))return send(res,429,{code:'rate_limited',message:'Too many requests'},{'Retry-After':'10'});
         // Cookie-authenticated browser writes must come from a registered origin (CSRF defense).
         if(principal?.via==='oidc'&&!['GET','HEAD'].includes(req.method)&&!isAllowedBrowserOrigin(req.headers.origin,origins,selfOrigin,req.headers.host))return send(res,403,{code:'origin_not_allowed'});
       }

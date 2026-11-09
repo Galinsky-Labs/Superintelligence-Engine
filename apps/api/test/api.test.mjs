@@ -26,3 +26,13 @@ test('dev login is disabled in production mode',{skip},async()=>{
   try{assert.equal((await client(app.base).post('/v1/dev/login',{handle:'mallory'})).status,404);}
   finally{await app.stop();await db.drop();}
 });
+
+test('rate limiting returns 429 per identity',{skip},async()=>{
+  const db=await freshDatabase();const app=await startApp(db,{SIE_RATE_LIMIT_PER_MINUTE:'5'});
+  try{
+    const {data}=await client(app.base).post('/v1/dev/login',{handle:'ratey'});
+    const c=client(app.base,{token:data.token});const codes=[];
+    for(let i=0;i<7;i++)codes.push((await c.get('/v1/me')).status);
+    assert.deepEqual(codes.slice(0,5),[200,200,200,200,200]);assert.equal(codes[6],429);
+  }finally{await app.stop();await db.drop();}
+});

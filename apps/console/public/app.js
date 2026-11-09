@@ -62,6 +62,7 @@ async function boot(){
   const me=await api('GET','/v1/me');
   sessionStorage.setItem('sie_token',state.token);
   state.tenants=(await api('GET','/v1/tenants')).items;
+  if(!state.tenants.length){await api('POST','/v1/tenants',{name:(me.displayName||'My')+"'s workspace"});state.tenants=(await api('GET','/v1/tenants')).items;}
   if(!state.tenants.find(t=>t.id===state.tenant))state.tenant=state.tenants[0]?.id||'';
   sessionStorage.setItem('sie_tenant',state.tenant);
   rc($('#tenant-select'),...state.tenants.map(t=>h('option',{value:t.id,selected:t.id===state.tenant},`${t.name} (${t.role})`)));
