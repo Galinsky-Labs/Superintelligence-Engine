@@ -11,6 +11,8 @@ try{
   const exists=(await c.query('SELECT 1 FROM pg_roles WHERE rolname=$1',[role])).rowCount;
   const pw=password.replace(/'/g,"''");
   await c.query(exists?`ALTER ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '${pw}'`:`CREATE ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '${pw}'`);
+  await c.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='sie_tenant_role') THEN CREATE ROLE sie_tenant_role NOLOGIN; END IF; END $$`);
+  await c.query(`GRANT sie_tenant_role TO ${role}`);
   await c.query(`GRANT USAGE ON SCHEMA public, sie TO ${role}`);
   await c.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ${role}`);
   await c.query(`GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ${role}`);

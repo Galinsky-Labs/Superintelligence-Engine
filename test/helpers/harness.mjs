@@ -24,6 +24,7 @@ export async function freshDatabase(){
   const url=withDb(ADMIN_URL,name);
   await migrate({connectionString:url});
   const c=new pg.Client({connectionString:url});await c.connect();
+  await c.query('GRANT sie_tenant_role TO sie_test_app');
   await c.query('GRANT USAGE ON SCHEMA public, sie TO sie_test_app');
   await c.query('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO sie_test_app');
   await c.query('GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO sie_test_app');

@@ -145,6 +145,7 @@ test('tools, integrations, workspace and security boundaries',{skip},async t=>{
       try{
         assert.equal((await c.query('SELECT count(*)::int n FROM projects')).rows[0].n,0);
         assert.equal((await c.query('SELECT count(*)::int n FROM project_artifacts')).rows[0].n,0);
+        await c.query("SET sie.system='on'");assert.equal((await c.query('SELECT count(*)::int n FROM projects')).rows[0].n,0,'app role cannot self-elevate to system');await c.query("SET sie.system='off'");
         await c.query('BEGIN');await c.query("SELECT set_config('sie.tenant_id',$1,true),set_config('sie.identity_id',$2,true)",[a.tenantId,(await login(app.base,'mallory')).identityId]);
         assert.equal((await c.query('SELECT count(*)::int n FROM projects')).rows[0].n,0,'non-member sees nothing even with tenant set');
         await c.query('ROLLBACK');

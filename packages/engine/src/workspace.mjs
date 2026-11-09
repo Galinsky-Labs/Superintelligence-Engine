@@ -16,7 +16,7 @@ function git(args,{cwd,env={},input}={}){
       {cwd,env:{PATH:process.env.PATH,HOME:cwd||tmpdir(),GIT_TERMINAL_PROMPT:'0',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',...env},stdio:['pipe','pipe','pipe']});
     let out='',err='';p.stdout.on('data',d=>{if(out.length<4e6)out+=d});p.stderr.on('data',d=>{if(err.length<1e5)err+=d});
     p.on('error',reject);p.on('close',c=>c===0?resolve(out):reject(new EngineError('git_failed',500,err.replace(/https:\/\/[^@\s]+@/g,'https://***@').slice(0,500))));
-    p.stdin.end(input||'');
+    p.stdin.on('error',()=>{});p.stdin.end(input||'');
   });
 }
 
