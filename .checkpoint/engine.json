@@ -1,0 +1,9 @@
+{
+  "branch": "integration/complete-engine",
+  "pullRequest": "https://github.com/Galinsky-Labs/Superintelligence-Engine/pull/41",
+  "lastVerifiedCommit": "413f6e14b239814cb6701e927cab3a6393e54a39",
+  "localTests": {"command": "TEST_ADMIN_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/sie_test npm test", "result": "80/80 pass", "build": "npm run build passes"},
+  "launch": "npm install --ignore-scripts && npm run dev",
+  "notVerified": ["live provider calls (no credentials; /bin/bash budget)", "hosted deployment (none authorized)", "container build (registry blocked in session; CI job added)"],
+  "nextActions": ["apply security review findings", "confirm CI green on PR 41"]
+}
