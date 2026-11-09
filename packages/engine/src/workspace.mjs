@@ -7,6 +7,7 @@ import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {EngineError,check,fail,sha256,requireUUID,requireMembership,withTenant,tx,randomToken} from './infra.mjs';
 import {safeRelPath} from './sandbox.mjs';
+import {assertEgress} from './net.mjs';
 
 const MAX_FILE=1024*1024,MAX_FILES=2000;
 function git(args,{cwd,env={},input}={}){
@@ -197,7 +198,7 @@ print(json.dumps(out))`;
   }
   /** Push to an external remote. Called only after an approval (consequential external write). */
   async push({tenantId,projectId,remoteUrl,token,branch='main'}){
-    const u=new URL(remoteUrl);check(u.protocol==='https:','remote_https_required',400);
+    const u=await assertEgress(remoteUrl);check(u.protocol==='https:','remote_https_required',400);
     check(/^[A-Za-z0-9._/-]{1,100}$/.test(branch),'invalid_branch');
     const dir=await this.ensureRepo(tenantId,projectId);
     if(token){u.username='x-access-token';u.password=token;}

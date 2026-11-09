@@ -3,6 +3,7 @@ import {BudgetLedger,BudgetError} from '../../budget/src/index.mjs';
 import {EngineError,check,fail,sha256,requireMembership,log,metrics} from './infra.mjs';
 import {BUILTIN_MODELS} from './models.mjs';
 import {PROVIDERS} from './providers.mjs';
+import {assertEgress,egressPolicy} from './net.mjs';
 
 export function textCost(price,inputTokens,outputTokens){return Math.ceil((inputTokens*price.input+outputTokens*price.output)/1e6);}
 export function unitCost(price,units){return Math.ceil(units*price.unit);}
@@ -82,6 +83,7 @@ export class ModelCatalog {
       let u;try{u=new URL(baseUrl)}catch{fail('invalid_base_url')}
       check(u.protocol==='https:'||(this.env.SIE_ALLOW_HTTP_PROVIDER_URLS==='1'&&u.protocol==='http:'),'invalid_base_url',400,'Provider base URL must be HTTPS');
       check(!u.username&&!u.password,'invalid_base_url');
+      await assertEgress(u.href,{...egressPolicy(this.env),allowHttp:this.env.SIE_ALLOW_HTTP_PROVIDER_URLS==='1'}); // no private/metadata targets
     }else check(!PROVIDERS[provider].requiresBaseUrl,'base_url_required');
     await this.db.query(`INSERT INTO provider_credentials(tenant_id,provider,ciphertext,base_url,fingerprint,created_by) VALUES($1,$2,$3,$4,$5,$6)
       ON CONFLICT(tenant_id,provider) DO UPDATE SET ciphertext=EXCLUDED.ciphertext,base_url=EXCLUDED.base_url,fingerprint=EXCLUDED.fingerprint,created_by=EXCLUDED.created_by,updated_at=now()`,
