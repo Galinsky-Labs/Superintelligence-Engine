@@ -18,7 +18,7 @@ const LANGS={
 };
 export const SANDBOX_LANGUAGES=Object.keys(LANGS);
 const PATH_RE=/^[A-Za-z0-9_.@+-][A-Za-z0-9_./@+-]{0,255}$/;
-export function safeRelPath(p){check(typeof p==='string'&&PATH_RE.test(p)&&!p.split('/').includes('..')&&!p.includes('//')&&!p.endsWith('/'),'invalid_path',400,'Invalid file path: '+p);return p;}
+export function safeRelPath(p){check(typeof p==='string'&&PATH_RE.test(p)&&!p.split('/').some(seg=>seg==='..'||seg==='.'||seg.toLowerCase()==='.git')&&!p.includes('//')&&!p.endsWith('/'),'invalid_path',400,'Invalid file path: '+p);return p;}
 
 function detectBackend(pref=process.env.SIE_SANDBOX||'auto'){
   if(pref==='disabled')return null;

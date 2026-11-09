@@ -10,6 +10,7 @@ import {ENGINE_VERSION,WORKSPACE_KINDS} from '../../../packages/core/src/index.m
 import {handleProductCors,normalizeProductOrigins,isAllowedBrowserOrigin} from './product-cors.mjs';
 import {authRoute} from './auth-routes.mjs';
 import {safeRelPath} from '../../../packages/engine/src/sandbox.mjs';
+import {zip} from '../../../packages/engine/src/zip.mjs';
 
 const CONSOLE_DIR=fileURLToPath(new URL('../../console/public/',import.meta.url));
 const VERSION='0.2.0';
@@ -96,7 +97,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
   route('GET','/v1/capabilities',async(ctx)=>{
     let providers=[],generationEnabled=false,models=[];
     const tenantId=ctx.req.headers['x-tenant-id'];
-    if(ctx.principal&&isUUID(tenantId)){
+    if(ctx.principal&&isUUID(tenantId)&&(await e.pools.system.query('SELECT 1 FROM memberships WHERE tenant_id=$1 AND identity_id=$2',[tenantId,ctx.principal.identityId])).rowCount){
       models=(await e.catalog.models(tenantId)).filter(m=>m.available);
       providers=[...new Set(models.map(m=>m.provider))];
       generationEnabled=models.some(m=>!m.simulated&&m.capabilities.includes('chat'));
@@ -135,7 +136,19 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
   route('PATCH','/v1/projects/:pid',async c=>e.projects.updateProject(c.principal,c.tenant,c.params.pid,await json(c.req)),{tenant:true});
   route('DELETE','/v1/projects/:pid',async c=>e.projects.deleteProject(c.principal,c.tenant,c.params.pid),{tenant:true});
   route('GET','/v1/projects/:pid/export',async c=>{
-    const x=await e.projects.exportProject(c.principal,c.tenant,c.params.pid,{embedAssets:c.query.get('assets')!=='0'});
+    const x=await e.projects.exportProject(c.principal,c.tenant,c.params.pid,{embedAssets:c.query.get('assets')!=='0'||c.query.get('format')==='zip'});
+    if(c.query.get('format')==='zip'){
+      const ext={'text/markdown':'md','text/plain':'txt','application/json':'json','image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif','audio/mpeg':'mp3','audio/wav':'wav','video/mp4':'mp4','text/csv':'csv','application/pdf':'pdf'};
+      const used=new Set();const safe=t=>{let n=String(t||'artifact').replace(/[^A-Za-z0-9._ -]+/g,'_').slice(0,80)||'artifact';let k=n,i=2;while(used.has(k))k=`${n} (${i++})`;used.add(k);return k;};
+      const entries=[];
+      for(const a of x.artifacts){const v=a.revisions.at(-1);if(!v)continue;const name=safe(a.title);
+        if(v.assetId&&x.assets[v.assetId])entries.push({name:`artifacts/${name}.${ext[v.mediaType]||'bin'}`,data:Buffer.from(x.assets[v.assetId].base64,'base64')});
+        else entries.push({name:`artifacts/${name}.${typeof v.body==='string'?(ext[v.mediaType]||'md'):'json'}`,data:typeof v.body==='string'?v.body:JSON.stringify(v.body,null,2)});}
+      for(const f of x.workspaceFiles)entries.push({name:`workspace/${f.path}`,data:f.content});
+      entries.push({name:'project.json',data:JSON.stringify(x)});
+      const buf=zip(entries);
+      c.res.writeHead(200,{'Content-Type':'application/zip','Content-Length':buf.length,'Cache-Control':'no-store','Content-Disposition':`attachment; filename="project-${c.params.pid}.zip"`,...SECURITY_HEADERS});return c.res.end(buf);
+    }
     c.res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="project-${c.params.pid}.json"`,...SECURITY_HEADERS});c.res.end(JSON.stringify(x));
   },{tenant:true,raw:true});
   route('GET','/v1/projects/:pid/artifacts',async c=>e.projects.listArtifacts(c.principal,c.tenant,c.params.pid,{kind:c.query.get('kind')||undefined,q:c.query.get('q')||undefined}),{tenant:true});
@@ -314,7 +327,10 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
       const r=candidates.find(x=>x.method===req.method);
       if(!r)return send(res,405,{code:'method_not_allowed'});
       matchedRoute=r.rx.source;
-      const m=r.rx.exec(path);const params=Object.fromEntries(r.keys.map((k,i)=>[k,decodeURIComponent(m[i+1])]));
+      const m=r.rx.exec(path);let params;
+      try{params=Object.fromEntries(r.keys.map((k,i)=>[k,decodeURIComponent(m[i+1])]));}catch{return send(res,400,{code:'invalid_path'});}
+      // Single-segment parameters must not smuggle path separators or traversal after decoding.
+      for(const [k,v] of Object.entries(params))if(k!=='path'&&(/[\/\\]/.test(v)||v==='..'||v==='.'))return send(res,400,{code:'invalid_path'});
       let principal=null;
       const ip=(env.SIE_TRUST_PROXY==='1'&&String(req.headers['x-forwarded-for']||'').split(',')[0].trim())||req.socket.remoteAddress||'?';
       if(r.opts.public&&!r.opts.optionalAuth&&req.method!=='GET'&&!publicLimiter.take('ip:'+ip))return send(res,429,{code:'rate_limited',message:'Too many requests'},{'Retry-After':'30'});

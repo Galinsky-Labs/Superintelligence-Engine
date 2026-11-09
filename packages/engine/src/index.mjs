@@ -1,6 +1,6 @@
 // Composition root for the integrated engine (API and worker share it).
 import {cpus} from 'node:os';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHmac} from 'node:crypto';
 import {createPools,SecretBox,log,metrics,sleep,installErrorReporter} from './infra.mjs';
 import {IdentityService} from './identity.mjs';
 import {ModelCatalog,Meter} from './catalog.mjs';
@@ -33,7 +33,7 @@ export function createEngine({env=process.env,pools,adapterOverrides,sandbox,fet
   const catalog=new ModelCatalog({system:p.system,secretBox:box,env,adapterOverrides});
   const meter=new Meter({system:p.system});
   const sbx=sandbox||new Sandbox();
-  const workspace=new Workspace({system:p.system,tenant:p.tenant,sandbox:sbx,storageDir:env.SIE_STORAGE_DIR||'./var/storage',previewSecret:env.SIE_PREVIEW_SECRET||env.SIE_ENCRYPTION_KEY});
+  const workspace=new Workspace({system:p.system,tenant:p.tenant,sandbox:sbx,storageDir:env.SIE_STORAGE_DIR||'./var/storage',previewSecret:env.SIE_PREVIEW_SECRET||(env.SIE_ENCRYPTION_KEY?createHmac('sha256',Buffer.from(env.SIE_ENCRYPTION_KEY,'hex')).update('sie-preview-token-v1').digest('hex'):undefined)}); // domain-separated key
   const connections=new Connections({system:p.system,secretBox:box,policy:egress,fetchImpl});
   const executor=new Executor({system:p.system,runs,catalog,meter,projects,assets,sandbox:sbx,workspace,connections,egress});
   const scheduler=new Scheduler({system:p.system,runs,projects});

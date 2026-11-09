@@ -3,7 +3,7 @@ import {BudgetLedger,BudgetError} from '../../budget/src/index.mjs';
 import {EngineError,check,fail,sha256,requireMembership,log,metrics} from './infra.mjs';
 import {BUILTIN_MODELS} from './models.mjs';
 import {PROVIDERS} from './providers.mjs';
-import {assertEgress,egressPolicy} from './net.mjs';
+import {assertEgress,egressPolicy,guardedProviderFetch} from './net.mjs';
 
 export function textCost(price,inputTokens,outputTokens){return Math.ceil((inputTokens*price.input+outputTokens*price.output)/1e6);}
 export function unitCost(price,units){return Math.ceil(units*price.unit);}
@@ -30,7 +30,7 @@ export class ModelCatalog {
     const cred=await this.credentialFor(tenantId,provider);
     if(!cred)fail('provider_unconfigured',409,`No credential configured for provider ${provider}`);
     const key=provider+':'+sha256(String(cred.apiKey)+'|'+(cred.baseUrl||'')).slice(0,16);
-    if(!this.adapters.has(key))this.adapters.set(key,PROVIDERS[provider].make(cred));
+    if(!this.adapters.has(key))this.adapters.set(key,PROVIDERS[provider].make({...cred,...(cred.source==='tenant'&&cred.baseUrl?{fetchImpl:guardedProviderFetch({...egressPolicy(this.env),allowHttp:this.env.SIE_ALLOW_HTTP_PROVIDER_URLS==='1'})}:{})}));
     return this.adapters.get(key);
   }
   async prices(){
@@ -118,18 +118,29 @@ export class Meter {
   constructor({system}){this.db=system;this.ledger=new BudgetLedger({pool:system});}
   async reserve({tenantId,runId=null,key,micro}){
     if(micro<=0)return null;
-    if(runId){
-      const r=await this.db.query(`SELECT r.budget_ceiling_micro,r.spent_micro,coalesce((SELECT sum(b.reserved_micro) FROM budget_reservations b WHERE b.tenant_id=r.tenant_id AND b.status='reserved' AND b.idempotency_key LIKE $2),0)::bigint AS inflight FROM runs r WHERE r.id=$1`,[runId,'run:'+runId+':%']);
+    const doReserve=async()=>{
+      try{return await this.ledger.reserve({tenantId,idempotencyKey:(runId?'run:'+runId+':':'')+key,maximumMicrounits:String(micro)})}
+      catch(e){
+        if(e instanceof BudgetError)fail(e.code,402,e.code==='global_limit_exceeded'?'The operator-wide spending cap (currently enforced) would be exceeded':'The tenant budget would be exceeded');
+        if(String(e.message).includes('not provisioned'))fail('tenant_limit_exceeded',402,'Tenant budget account is not provisioned');
+        throw e;
+      }
+    };
+    if(!runId)return doReserve();
+    // Hold the run row lock while checking the ceiling and committing the reservation so
+    // concurrent nodes of one run cannot all pass the check and overshoot it.
+    const db=await this.db.connect();
+    try{
+      await db.query('BEGIN');
+      await db.query('SELECT 1 FROM runs WHERE id=$1 FOR UPDATE',[runId]); // lock first; read totals in a fresh snapshot below
+      const r=await db.query(`SELECT r.budget_ceiling_micro,r.spent_micro,coalesce((SELECT sum(b.reserved_micro) FROM budget_reservations b WHERE b.tenant_id=r.tenant_id AND b.status='reserved' AND b.idempotency_key LIKE $2),0)::bigint AS inflight FROM runs r WHERE r.id=$1`,[runId,'run:'+runId+':%']);
       const row=r.rows[0];
       if(row&&Number(row.budget_ceiling_micro)>0&&Number(row.spent_micro)+Number(row.inflight)+micro>Number(row.budget_ceiling_micro))
         fail('run_budget_exceeded',402,'The run budget ceiling would be exceeded');
-    }
-    try{return await this.ledger.reserve({tenantId,idempotencyKey:(runId?'run:'+runId+':':'')+key,maximumMicrounits:String(micro)})}
-    catch(e){
-      if(e instanceof BudgetError)fail(e.code,402,e.code==='global_limit_exceeded'?'The operator-wide spending cap (currently enforced) would be exceeded':'The tenant budget would be exceeded');
-      if(String(e.message).includes('not provisioned'))fail('tenant_limit_exceeded',402,'Tenant budget account is not provisioned');
-      throw e;
-    }
+      const res=await doReserve();
+      await db.query('COMMIT');return res;
+    }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e;}
+    finally{db.release();}
   }
   async settle(reservation,actualMicro,meta){
     let charged=actualMicro,estimatedOverage=false;

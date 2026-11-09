@@ -61,7 +61,7 @@ export async function buildTools(ctx,allowed=[]){
       run:async a=>({result:calculate(a.expression)})},
     {name:'web_fetch',description:'Fetch a public web page (HTTPS GET) and return its text. Hosts outside the egress allowlist require human approval.',inputSchema:obj({url:{type:'string'}}),
       effect:'read',effectFor:a=>{try{return hostAllowlisted(new URL(a.url).hostname,policy.allowlist)?'read':'external'}catch{return 'external'}},
-      run:async a=>{const r=await guardedFetch(a.url,{policy,maxBytes:2*1024*1024});const ct=r.headers['content-type']||'';
+      run:async a=>{const first=new URL(a.url);const r=await guardedFetch(a.url,{policy,maxBytes:2*1024*1024,redirectAllowed:n=>n.host===first.host||hostAllowlisted(n.hostname,policy.allowlist)});const ct=r.headers['content-type']||'';
         let text=r.bytes.toString('utf8');if(ct.includes('html'))text=htmlToText(text);
         return {url:r.url,status:r.status,contentType:ct,truncated:r.truncated,text:text.slice(0,50000),untrusted:true};}},
     {name:'http_request',description:'Send an HTTP request that may change external state (POST/PUT/PATCH/DELETE). Always requires human approval.',

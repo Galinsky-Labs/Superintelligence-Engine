@@ -12,7 +12,7 @@ import {assertEgress} from './net.mjs';
 const MAX_FILE=1024*1024,MAX_FILES=2000;
 function git(args,{cwd,env={},input}={}){
   return new Promise((resolve,reject)=>{
-    const p=spawn('git',['-c','core.hooksPath=/dev/null','-c','protocol.file.allow=never','-c','credential.helper=','-c','init.defaultBranch=main',...args],
+    const p=spawn('git',['-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-c','core.untrackedCache=false','-c','protocol.file.allow=never','-c','protocol.ext.allow=never','-c','credential.helper=','-c','init.defaultBranch=main','-c','safe.directory=*',...args],
       {cwd,env:{PATH:process.env.PATH,HOME:cwd||tmpdir(),GIT_TERMINAL_PROMPT:'0',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',...env},stdio:['pipe','pipe','pipe']});
     let out='',err='';p.stdout.on('data',d=>{if(out.length<4e6)out+=d});p.stderr.on('data',d=>{if(err.length<1e5)err+=d});
     p.on('error',reject);p.on('close',c=>c===0?resolve(out):reject(new EngineError('git_failed',500,err.replace(/https:\/\/[^@\s]+@/g,'https://***@').slice(0,500))));
@@ -136,63 +136,73 @@ print(json.dumps(out))`;
   }
 
   // ---- Git ----
-  repoDir(tenantId,projectId){return join(this.gitRoot,tenantId,projectId);}
-  async ensureRepo(tenantId,projectId){
-    const dir=this.repoDir(tenantId,projectId);
+  // The repository lives in a bare git dir outside any materialized work tree; workspace files are
+  // written into a fresh temporary work tree per operation, so no file can alter git configuration.
+  async gitDir(principal,tenantId,projectId,role){
+    requireUUID(tenantId,'tenant');requireUUID(projectId,'project');
+    await requireMembership(this.db,principal,tenantId,role);
+    check((await this.db.query('SELECT 1 FROM projects WHERE tenant_id=$1 AND id=$2',[tenantId,projectId])).rowCount,'project_not_found',404);
+    const dir=join(this.gitRoot,tenantId,projectId+'.git');
     await mkdir(dir,{recursive:true});
-    try{await git(['rev-parse','--git-dir'],{cwd:dir})}catch{await git(['init','-q'],{cwd:dir});}
+    try{await git(['--git-dir',dir,'rev-parse','--git-dir'])}catch{await git(['init','-q','--bare',dir]);}
     return dir;
   }
+  async withTree(tenantId,projectId,fn){
+    const tree=await mkdtemp(join(tmpdir(),'sie-tree-'));
+    try{const files=await this.systemFiles(tenantId,projectId);
+      for(const [p,c] of Object.entries(files)){safeRelPath(p);await mkdir(dirname(join(tree,p)),{recursive:true});await writeFile(join(tree,p),c);}
+      return await fn(tree);}
+    finally{await rm(tree,{recursive:true,force:true});}
+  }
   async commit(principal,tenantId,projectId,{message}){
-    await requireMembership(this.db,principal,tenantId,'member');requireUUID(projectId,'project');
     check(typeof message==='string'&&message.trim().length>=1&&message.length<=2000,'invalid_message');
-    const dir=await this.ensureRepo(tenantId,projectId);
-    const files=await this.systemFiles(tenantId,projectId);
-    for(const e of await readdir(dir))if(e!=='.git')await rm(join(dir,e),{recursive:true,force:true});
-    for(const [p,c] of Object.entries(files)){await mkdir(dirname(join(dir,p)),{recursive:true});await writeFile(join(dir,p),c);}
-    await git(['add','-A'],{cwd:dir});
-    const status=await git(['status','--porcelain'],{cwd:dir});
+    const dir=await this.gitDir(principal,tenantId,projectId,'member');
     const id=(await this.db.query('SELECT display_name,email FROM identities WHERE id=$1',[principal.identityId])).rows[0]||{};
-    if(!status.trim()){
-      try{const head=(await git(['rev-parse','HEAD'],{cwd:dir})).trim();return {commit:head,changed:false};}catch{}
-    }
-    await git(['commit','-q','--allow-empty','-m',message],{cwd:dir,env:{GIT_AUTHOR_NAME:id.display_name||'Engine user',GIT_AUTHOR_EMAIL:id.email||'user@engine.local',GIT_COMMITTER_NAME:'Superintelligence Engine',GIT_COMMITTER_EMAIL:'engine@engine.local'}});
-    return {commit:(await git(['rev-parse','HEAD'],{cwd:dir})).trim(),changed:true};
+    return this.withTree(tenantId,projectId,async tree=>{
+      const g=(args,o)=>git(['--git-dir',dir,'--work-tree',tree,...args],{cwd:tree,...o});
+      let head=null;try{head=(await g(['rev-parse','HEAD'])).trim()}catch{}
+      if(head)await g(['read-tree',head]);
+      await g(['add','-A']);
+      const status=await g(['status','--porcelain']);
+      if(!status.trim()&&head)return {commit:head,changed:false};
+      await g(['commit','-q','--allow-empty','-m',message],{env:{GIT_AUTHOR_NAME:id.display_name||'Engine user',GIT_AUTHOR_EMAIL:id.email||'user@engine.local',GIT_COMMITTER_NAME:'Superintelligence Engine',GIT_COMMITTER_EMAIL:'engine@engine.local'}});
+      return {commit:(await g(['rev-parse','HEAD'])).trim(),changed:true};
+    });
   }
   async log(principal,tenantId,projectId){
-    await requireMembership(this.db,principal,tenantId,'viewer');
-    const dir=await this.ensureRepo(tenantId,projectId);
+    const dir=await this.gitDir(principal,tenantId,projectId,'viewer');
     try{
-      const out=await git(['log','-n','100','--pretty=format:%H%x1f%an%x1f%aI%x1f%s','--shortstat'],{cwd:dir});
+      const out=await git(['--git-dir',dir,'log','-n','100','--pretty=format:%H%x1f%an%x1f%aI%x1f%s','--shortstat']);
       const items=[];
       for(const block of out.split(/\n(?=[0-9a-f]{40}\x1f)/)){const [head,stat='']=block.split('\n');const [hash,author,date,subject]=head.split('\x1f');if(hash)items.push({commit:hash,author,date,message:subject,stat:stat.trim()});}
       return {items};
     }catch{return {items:[]}}
   }
   async diff(principal,tenantId,projectId,{from,to}={}){
-    await requireMembership(this.db,principal,tenantId,'viewer');
     for(const c of [from,to])if(c)check(/^[0-9a-f]{7,40}$/.test(c),'invalid_commit');
-    const dir=await this.ensureRepo(tenantId,projectId);
-    if(!from&&!to){ // working changes vs HEAD
-      const files=await this.systemFiles(tenantId,projectId);
-      const scratch=await mkdtemp(join(tmpdir(),'sie-diff-'));
-      try{
-        await git(['clone','-q',dir,scratch]).catch(async()=>{await git(['init','-q'],{cwd:scratch})});
-        for(const e of await readdir(scratch))if(e!=='.git')await rm(join(scratch,e),{recursive:true,force:true});
-        for(const [p,c] of Object.entries(files)){await mkdir(dirname(join(scratch,p)),{recursive:true});await writeFile(join(scratch,p),c);}
-        await git(['add','-A'],{cwd:scratch});
-        return {diff:await git(['diff','--cached','--no-color'],{cwd:scratch}).catch(()=>'')};
-      }finally{await rm(scratch,{recursive:true,force:true})}
+    const dir=await this.gitDir(principal,tenantId,projectId,'viewer');
+    if(!from&&!to){
+      return this.withTree(tenantId,projectId,async tree=>{
+        const g=args=>git(['--git-dir',dir,'--work-tree',tree,...args],{cwd:tree});
+        let head=null;try{head=(await g(['rev-parse','HEAD'])).trim()}catch{}
+        // Use a throwaway index so the repository's index is not modified.
+        const idx=join(tree,'..',`sie-idx-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+        try{
+          const gi=args=>git(['--git-dir',dir,'--work-tree',tree,...args],{cwd:tree,env:{GIT_INDEX_FILE:idx}});
+          if(head)await gi(['read-tree',head]);await gi(['add','-A']);
+          return {diff:head?await gi(['diff','--cached','--no-color',head]):await gi(['diff','--cached','--no-color'])};
+        }finally{await rm(idx,{force:true});}
+      });
     }
-    return {diff:await git(['diff','--no-color',from||'HEAD~1',to||'HEAD'],{cwd:dir})};
+    return {diff:await git(['--git-dir',dir,'diff','--no-color',from||'HEAD~1',to||'HEAD'])};
   }
   async checkout(principal,tenantId,projectId,{commit}){
-    await requireMembership(this.db,principal,tenantId,'member');check(/^[0-9a-f]{7,40}$/.test(commit||''),'invalid_commit');
-    const dir=await this.ensureRepo(tenantId,projectId);
-    const list=(await git(['ls-tree','-r','--name-only',commit],{cwd:dir})).split('\n').filter(Boolean);
+    check(/^[0-9a-f]{7,40}$/.test(commit||''),'invalid_commit');
+    const dir=await this.gitDir(principal,tenantId,projectId,'member');
+    const list=(await git(['--git-dir',dir,'ls-tree','-r','--name-only',commit])).split('\n').filter(Boolean);
     const current=await this.systemFiles(tenantId,projectId);
     const ctx={tenantId,projectId,identityId:principal.identityId};
-    for(const p of list){const c=await git(['show',`${commit}:${p}`],{cwd:dir});if(current[p]!==c)await this.systemWrite(ctx,p,c);}
+    for(const p of list){safeRelPath(p);const c=await git(['--git-dir',dir,'show',`${commit}:${p}`]);if(current[p]!==c)await this.systemWrite(ctx,p,c);}
     for(const p of Object.keys(current))if(!list.includes(p))await this.remove(principal,tenantId,projectId,p);
     return {restored:list.length,commit};
   }
@@ -200,9 +210,10 @@ print(json.dumps(out))`;
   async push({tenantId,projectId,remoteUrl,token,branch='main'}){
     const u=await assertEgress(remoteUrl);check(u.protocol==='https:','remote_https_required',400);
     check(/^[A-Za-z0-9._/-]{1,100}$/.test(branch),'invalid_branch');
-    const dir=await this.ensureRepo(tenantId,projectId);
-    if(token){u.username='x-access-token';u.password=token;}
-    await git(['push',u.href,`HEAD:refs/heads/${branch}`],{cwd:dir});
+    requireUUID(tenantId,'tenant');requireUUID(projectId,'project');
+    const dir=join(this.gitRoot,tenantId,projectId+'.git');
+    const extra=token?['-c',`http.extraHeader=Authorization: Basic ${Buffer.from('x-access-token:'+token).toString('base64')}`]:[];
+    await git([...extra,'-c','http.followRedirects=false','--git-dir',dir,'push',u.href,`HEAD:refs/heads/${branch}`]);
     return {pushed:true,remote:remoteUrl,branch};
   }
 

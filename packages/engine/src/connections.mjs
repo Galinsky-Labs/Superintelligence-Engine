@@ -76,7 +76,9 @@ export class Connections {
       toolDefs=remote.filter(t=>/^[A-Za-z0-9_-]{1,64}$/.test(t.name||'')).map(t=>({name:t.name,description:String(t.description||'').slice(0,1000),inputSchema:isObject(t.inputSchema)?t.inputSchema:{type:'object',properties:{}},effect:effects[t.name]==='read'?'read':'external'}));
     }
     const r=await this.db.query(`INSERT INTO connections(tenant_id,kind,name,endpoint,secret_ciphertext,tools,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)
-      ON CONFLICT(tenant_id,name) DO UPDATE SET kind=EXCLUDED.kind,endpoint=EXCLUDED.endpoint,secret_ciphertext=coalesce(EXCLUDED.secret_ciphertext,connections.secret_ciphertext),tools=EXCLUDED.tools,enabled=true RETURNING *`,
+      ON CONFLICT(tenant_id,name) DO UPDATE SET kind=EXCLUDED.kind,endpoint=EXCLUDED.endpoint,
+        secret_ciphertext=CASE WHEN EXCLUDED.secret_ciphertext IS NOT NULL THEN EXCLUDED.secret_ciphertext WHEN connections.endpoint=EXCLUDED.endpoint AND connections.kind=EXCLUDED.kind THEN connections.secret_ciphertext ELSE NULL END,
+        tools=EXCLUDED.tools,enabled=true RETURNING *` /* a stored secret never follows a changed endpoint */,
       [tenantId,kind,name,u.href,secret?this.box.seal(secret):null,JSON.stringify(toolDefs),principal.identityId]);
     return this.serialize(r.rows[0]);
   }

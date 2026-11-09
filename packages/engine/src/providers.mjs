@@ -20,7 +20,7 @@ export class ProviderError extends EngineError {
 const MAX_BYTES=64*1024*1024;
 
 async function httpError(res,provider){
-  let detail='';try{detail=(await res.text()).slice(0,500)}catch{}
+  let detail='';try{detail=(await res.text()).slice(0,200)}catch{}
   const retryable=res.status===429||res.status>=500;
   const code=res.status===401||res.status===403?'provider_auth_failed':res.status===429?'provider_rate_limited':res.status>=500?'provider_unavailable':'provider_rejected';
   return new ProviderError(code,`${provider} returned HTTP ${res.status}: ${detail.replace(/\s+/g,' ')}`,{retryable});
@@ -98,7 +98,7 @@ export class OpenAIAdapter {
     const j=await res.json();const b64=j.data?.[0]?.b64_json;
     if(b64)return {bytes:Buffer.from(b64,'base64'),mediaType:'image/png',units:1,responseId:String(j.created||'')};
     const url=j.data?.[0]?.url;if(!url)throw new ProviderError('invalid_response','No image returned');
-    const img=await this.fetch(url,{signal});if(!img.ok)throw await httpError(img,this.id);
+    const img=await this.fetch(url,{signal,redirect:'error'}); // via guarded fetch when tenant-configuredif(!img.ok)throw await httpError(img,this.id);
     return {bytes:await readBytes(img),mediaType:img.headers.get('content-type')||'image/png',units:1};
   }
   async speech({model,text,voice='alloy',signal}){
@@ -122,7 +122,7 @@ export class OpenAIAdapter {
 
 // ---------------- Anthropic (official SDK) ----------------
 export class AnthropicAdapter {
-  constructor({apiKey,baseUrl,client}){this.id='anthropic';this.client=client||new Anthropic({apiKey,baseURL:baseUrl||'https://api.anthropic.com',maxRetries:2});}
+  constructor({apiKey,baseUrl,client,fetchImpl}){this.id='anthropic';this.client=client||new Anthropic({apiKey,baseURL:baseUrl||'https://api.anthropic.com',maxRetries:2,...(fetchImpl?{fetch:fetchImpl}:{})});}
   toMessages(messages){
     const out=[];
     for(const m of messages){
@@ -350,11 +350,11 @@ async function renderSimVideo(prompt){
 
 // ---------------- Registry ----------------
 export const PROVIDERS={
-  anthropic:{label:'Anthropic',env:'ANTHROPIC_API_KEY',make:({apiKey,baseUrl})=>new AnthropicAdapter({apiKey,baseUrl})},
-  openai:{label:'OpenAI',env:'OPENAI_API_KEY',make:({apiKey,baseUrl})=>new OpenAIAdapter({apiKey,baseUrl:baseUrl||'https://api.openai.com/v1'})},
-  'openai-compatible':{label:'OpenAI-compatible endpoint',env:'OPENAI_COMPATIBLE_API_KEY',baseEnv:'OPENAI_COMPATIBLE_BASE_URL',requiresBaseUrl:true,make:({apiKey,baseUrl})=>new OpenAIAdapter({apiKey,baseUrl,id:'openai-compatible'})},
-  gemini:{label:'Google Gemini',env:'GEMINI_API_KEY',make:({apiKey,baseUrl})=>new GeminiAdapter({apiKey,...(baseUrl?{baseUrl}:{})})},
-  elevenlabs:{label:'ElevenLabs',env:'ELEVENLABS_API_KEY',make:({apiKey,baseUrl})=>new ElevenLabsAdapter({apiKey,...(baseUrl?{baseUrl}:{})})},
-  replicate:{label:'Replicate',env:'REPLICATE_API_TOKEN',make:({apiKey,baseUrl})=>new ReplicateAdapter({apiKey,...(baseUrl?{baseUrl}:{})})},
+  anthropic:{label:'Anthropic',env:'ANTHROPIC_API_KEY',make:({apiKey,baseUrl,fetchImpl})=>new AnthropicAdapter({apiKey,baseUrl,fetchImpl})},
+  openai:{label:'OpenAI',env:'OPENAI_API_KEY',make:({apiKey,baseUrl,fetchImpl})=>new OpenAIAdapter({apiKey,baseUrl:baseUrl||'https://api.openai.com/v1',...(fetchImpl?{fetchImpl}:{})})},
+  'openai-compatible':{label:'OpenAI-compatible endpoint',env:'OPENAI_COMPATIBLE_API_KEY',baseEnv:'OPENAI_COMPATIBLE_BASE_URL',requiresBaseUrl:true,make:({apiKey,baseUrl,fetchImpl})=>new OpenAIAdapter({apiKey,baseUrl,id:'openai-compatible',...(fetchImpl?{fetchImpl}:{})})},
+  gemini:{label:'Google Gemini',env:'GEMINI_API_KEY',make:({apiKey,baseUrl,fetchImpl})=>new GeminiAdapter({apiKey,...(baseUrl?{baseUrl}:{}),...(fetchImpl?{fetchImpl}:{})})},
+  elevenlabs:{label:'ElevenLabs',env:'ELEVENLABS_API_KEY',make:({apiKey,baseUrl,fetchImpl})=>new ElevenLabsAdapter({apiKey,...(baseUrl?{baseUrl}:{}),...(fetchImpl?{fetchImpl}:{})})},
+  replicate:{label:'Replicate',env:'REPLICATE_API_TOKEN',make:({apiKey,baseUrl,fetchImpl})=>new ReplicateAdapter({apiKey,...(baseUrl?{baseUrl}:{}),...(fetchImpl?{fetchImpl}:{})})},
   deterministic:{label:'Deterministic simulator (test only)',env:null,make:()=>new DeterministicAdapter()},
 };

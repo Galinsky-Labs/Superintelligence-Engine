@@ -109,7 +109,7 @@ async function projectPage(id,tab='artifacts'){
   body.append(await render(p));
   return h('div',{},
     h('div',{class:'row'},h('h2',{style:'margin:0'},p.title),h('span',{class:'muted'},p.kind),h('span',{class:'spacer'}),
-      h('button',{class:'secondary',onclick:guard(()=>download(`/v1/projects/${p.id}/export`,`${p.title}.json`))},'Export')),
+      h('button',{class:'secondary',onclick:guard(()=>download(`/v1/projects/${p.id}/export?format=zip`,`${p.title}.zip`))},'Export ZIP'),h('button',{class:'secondary',onclick:guard(()=>download(`/v1/projects/${p.id}/export`,`${p.title}.json`))},'Export JSON (re-importable)')),
     h('div',{class:'tabs',role:'tablist'},tabs.map(([k,l])=>h('button',{class:k===tab?'active':'',role:'tab',onclick:()=>location.hash=`#/projects/${p.id}/${k}`},l))),
     body);
 }

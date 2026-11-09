@@ -59,6 +59,11 @@ test('vertical path survives restart',{skip},async()=>{
     // export -> import round trip
     const exp=await a.get(`/v1/projects/${ids.project}/export`);
     assert.equal(exp.status,200);assert.equal(exp.data.artifacts.length,1);assert.equal(exp.data.artifacts[0].revisions.length,3);
+    const z=await fetch(`${app.base}/v1/projects/${ids.project}/export?format=zip`,{headers:{Authorization:'Bearer '+ids.token,'X-Tenant-Id':ids.tenant}});
+    const zb=Buffer.from(await z.arrayBuffer());assert.equal(z.headers.get('content-type'),'application/zip');assert.equal(zb.readUInt32LE(0),0x04034b50);
+    const {execFileSync}=await import('node:child_process');const {writeFileSync,mkdtempSync}=await import('node:fs');const dir=mkdtempSync('/tmp/sie-zip-');writeFileSync(dir+'/p.zip',zb);
+    const listing=execFileSync('python3',['-c','import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;print("\\n".join(z.namelist()))',dir+'/p.zip']).toString();
+    assert.match(listing,/artifacts\/WAL explainer\.md/);assert.match(listing,/project\.json/);
     const imp=await a.post('/v1/projects/import',exp.data);
     assert.equal(imp.status,201);assert.equal(imp.data.artifactCount,1);
     const tampered=await a.post('/v1/projects/import',{...exp.data,project:{...exp.data.project,title:'tampered'}});
