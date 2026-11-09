@@ -1,50 +1,34 @@
 name: Engine CI
 on:
   push:
-    branches: [main]
+    branches: [main, 'integration/**']
   pull_request:
 permissions:
   contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-      - run: npm run release:dry-run
-
-  postgres-integration:
-    runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_DB: sie_test
-        ports:
-          - 5432:5432
+        image: postgres:16
+        env: {POSTGRES_PASSWORD: postgres, POSTGRES_USER: postgres}
+        ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U postgres -d sie_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      TEST_ADMIN_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sie_test
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sie_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+        with: {node-version: '22'}
+      - run: sudo apt-get update -qq && sudo apt-get install -y bubblewrap postgresql-client
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: node scripts/migrate.mjs
-      - run: node --test db/test/*.test.mjs
-      - run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+      - run: npm run build
+      - run: psql "$TEST_ADMIN_DATABASE_URL" -c 'CREATE DATABASE sie_test' && DATABASE_URL=$TEST_DATABASE_URL node scripts/migrate.mjs
+      - run: npx -y playwright@1.56.1 install --with-deps chromium && npm install --no-save playwright@1.56.1
+      - run: npm test
       - run: bash db/scripts/backup_restore_test.sh
+        env: {DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/sie_test}
+      - run: npm run release:dry-run

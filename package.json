@@ -1,6 +1,6 @@
 {
   "name": "superintelligence-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -14,15 +14,23 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "test": "node --test",
-    "check": "node --check apps/api/src/server.mjs && node --check apps/worker/src/worker.mjs && node --check packages/core/src/index.mjs && node --check packages/sdk/src/index.mjs && node --check packages/sdk/src/generated.mjs",
+    "start": "node apps/api/src/server.mjs",
+    "start:worker": "node apps/worker/src/worker.mjs",
+    "dev": "bash scripts/dev.sh",
+    "test": "node --test --test-timeout=300000 'packages/**/test/*.test.mjs' 'apps/**/test/*.test.mjs' 'db/test/*.test.mjs' 'test/**/*.test.mjs'",
+    "test:unit": "node --test 'packages/**/test/*.test.mjs' 'apps/api/test/product-cors.test.mjs'",
+    "test:e2e": "node --test --test-timeout=300000 'test/e2e/*.test.mjs'",
+    "test:ui": "node --test --test-timeout=300000 'test/ui/*.test.mjs'",
+    "check": "for f in $(git ls-files '*.mjs'); do node --check \"$f\" || exit 1; done",
     "lint": "npm run check && npm run generate:check",
-    "generate:sdk": "node scripts/generate-sdk.mjs",
-    "generate:check": "node scripts/generate-sdk.mjs --check",
+    "generate:openapi": "node scripts/generate-openapi.mjs",
+    "generate:check": "node scripts/generate-openapi.mjs --check",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "npm run check && npm run typecheck",
+    "build": "npm run lint && npm run typecheck",
     "release:dry-run": "npm pack --dry-run --json",
-    "db:migrate": "node scripts/migrate.mjs"
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:roles": "node scripts/setup-db-roles.mjs",
+    "admin": "node scripts/admin.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.7.0",

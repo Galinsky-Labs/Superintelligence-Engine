@@ -2,1345 +2,2481 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Superintelligence Engine API",
-    "version": "0.1.0",
-    "description": "Contracts only: x-implementation=planned operations are not live. Authenticated operations are not enabled before identity/tenant authorization is implemented."
+    "version": "0.2.0",
+    "description": "Generated from the server route table. Streaming endpoints (generate, run events) respond with text/event-stream."
   },
-  "servers": [
-    {
-      "url": "http://localhost:8080",
-      "description": "Local development"
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-sie_session_command"
+      }
     }
-  ],
+  },
   "paths": {
     "/health": {
       "get": {
-        "operationId": "getHealth",
-        "summary": "getHealth",
+        "tags": [
+          "health"
+        ],
+        "operationId": "get_health",
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthResponse"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
-        },
-        "x-implementation": "live"
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": [
+          "ready"
+        ],
+        "operationId": "get_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "operationId": "get_metrics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        }
       }
     },
     "/v1/capabilities": {
       "get": {
-        "operationId": "listCapabilities",
-        "summary": "listCapabilities",
+        "tags": [
+          "capabilities"
+        ],
+        "operationId": "get_v1_capabilities",
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapabilitiesResponse"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
-    "/v1/projects": {
-      "get": {
-        "operationId": "listProjects",
-        "summary": "listProjects",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectList"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        },
-        "x-implementation": "live"
-      },
+    "/v1/dev/login": {
       "post": {
-        "operationId": "createProject",
-        "summary": "createProject",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectCreate"
-              }
-            }
-          }
-        },
+        "tags": [
+          "dev"
+        ],
+        "operationId": "post_v1_dev_login",
+        "parameters": [],
         "responses": {
           "201": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Project"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
-        },
-        "x-implementation": "live"
+        }
       }
     },
-    "/v1/projects/{projectId}": {
+    "/v1/me": {
       "get": {
-        "operationId": "getProject",
-        "summary": "getProject",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+        "tags": [
+          "me"
         ],
+        "operationId": "get_v1_me",
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Project"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
-      },
-      "patch": {
-        "operationId": "updateProject",
-        "summary": "updateProject",
-        "parameters": [
+        "security": [
           {
-            "name": "projectId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
           }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Project"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        },
-        "x-implementation": "live"
+        ]
       }
     },
-    "/v1/projects/{projectId}/artifacts": {
+    "/v1/tokens": {
       "get": {
-        "operationId": "listArtifacts",
-        "summary": "listArtifacts",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+        "tags": [
+          "tokens"
         ],
+        "operationId": "get_v1_tokens",
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArtifactList"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       },
       "post": {
-        "operationId": "createArtifact",
-        "summary": "createArtifact",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+        "tags": [
+          "tokens"
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ArtifactCreate"
-              }
-            }
-          }
-        },
+        "operationId": "post_v1_tokens",
+        "parameters": [],
         "responses": {
           "201": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Artifact"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
-    "/v1/workflows": {
-      "get": {
-        "operationId": "listWorkflows",
-        "summary": "listWorkflows",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkflowList"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
+    "/v1/tokens/{id}": {
+      "delete": {
+        "tags": [
+          "tokens"
+        ],
+        "operationId": "delete_v1_tokens_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
         },
-        "x-implementation": "planned"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants": {
+      "get": {
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "get_v1_tenants",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       },
       "post": {
-        "operationId": "createWorkflow",
-        "summary": "createWorkflow",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WorkflowCreate"
-              }
-            }
-          }
-        },
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "post_v1_tenants",
+        "parameters": [],
         "responses": {
           "201": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Workflow"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "planned"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
-    "/v1/runs": {
-      "post": {
-        "operationId": "createRun",
-        "summary": "createRun",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RunCreate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Run"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        },
-        "x-implementation": "planned"
-      }
-    },
-    "/v1/runs/{runId}": {
+    "/v1/tenants/{tid}/members": {
       "get": {
-        "operationId": "getRun",
-        "summary": "getRun",
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "get_v1_tenants_tid_members",
         "parameters": [
           {
-            "name": "runId",
+            "name": "tid",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Run"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "planned"
-      }
-    },
-    "/v1/approvals/{approvalId}": {
-      "get": {
-        "operationId": "getApproval",
-        "summary": "getApproval",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "put_v1_tenants_tid_members",
         "parameters": [
           {
-            "name": "approvalId",
+            "name": "tid",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Approval"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "planned"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
-    "/v1/approvals/{approvalId}/decision": {
-      "post": {
-        "operationId": "decideApproval",
-        "summary": "decideApproval",
+    "/v1/tenants/{tid}/members/{iid}": {
+      "delete": {
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "delete_v1_tenants_tid_members_iid",
         "parameters": [
           {
-            "name": "approvalId",
+            "name": "tid",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
+            }
+          },
+          {
+            "name": "iid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApprovalDecision"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Approval"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "planned"
-      }
-    },
-    "/v1/usage": {
-      "get": {
-        "operationId": "getUsage",
-        "summary": "getUsage",
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Usage"
-                }
-              }
-            }
+        "security": [
+          {
+            "bearerAuth": []
           },
-          "400": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          {
+            "sessionCookie": []
           }
-        },
-        "x-implementation": "planned"
+        ]
       }
     },
     "/v1/models": {
       "get": {
-        "operationId": "listModels",
-        "summary": "List model capabilities and eligibility",
+        "tags": [
+          "models"
+        ],
+        "operationId": "get_v1_models",
         "parameters": [
           {
-            "name": "capability",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "region",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "usage",
-            "in": "query",
-            "required": false,
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
             "schema": {
               "type": "string",
-              "enum": [
-                "personal",
-                "commercial"
-              ]
+              "format": "uuid"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Catalog",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelCatalogResponse"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "503": {
-            "description": "Catalog backend unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
-      }
-    },
-    "/v1/projects/{projectId}/artifacts/{artifactId}/revisions": {
-      "post": {
-        "operationId": "reviseArtifact",
-        "summary": "reviseArtifact",
-        "parameters": [
+        "security": [
           {
-            "name": "projectId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "bearerAuth": []
           },
           {
-            "name": "artifactId",
-            "in": "path",
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/providers": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "operationId": "get_v1_providers",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ArtifactRevisionRequest"
-              }
-            }
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/providers/{provider}": {
+      "put": {
+        "tags": [
+          "providers"
+        ],
+        "operationId": "put_v1_providers_provider",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "providers"
+        ],
+        "operationId": "delete_v1_providers_provider",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/providers/{provider}/models": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "operationId": "get_v1_providers_provider_models",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/budget": {
+      "get": {
+        "tags": [
+          "budget"
+        ],
+        "operationId": "get_v1_budget",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "budget"
+        ],
+        "operationId": "put_v1_budget",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "tags": [
+          "usage"
+        ],
+        "operationId": "get_v1_usage",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
         "responses": {
           "201": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Artifact"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
-      },
-      "get": {
-        "operationId": "getArtifactHistory",
-        "summary": "getArtifactHistory",
-        "parameters": [
+        "security": [
           {
-            "name": "projectId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "bearerAuth": []
           },
           {
-            "name": "artifactId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "sessionCookie": []
           }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArtifactHistory"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        },
-        "x-implementation": "live"
+        ]
       }
     },
-    "/v1/projects/{projectId}/artifacts/{artifactId}/restore": {
+    "/v1/projects/import": {
       "post": {
-        "operationId": "restoreArtifact",
-        "summary": "restoreArtifact",
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_import",
         "parameters": [
           {
-            "name": "projectId",
-            "in": "path",
+            "name": "X-Tenant-Id",
+            "in": "header",
             "required": true,
             "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "artifactId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ArtifactRestoreRequest"
-              }
-            }
-          }
-        },
         "responses": {
           "201": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Artifact"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
-    "/v1/projects/{projectId}/export": {
+    "/v1/projects/{pid}": {
       "get": {
-        "operationId": "exportProject",
-        "summary": "exportProject",
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid",
         "parameters": [
           {
-            "name": "projectId",
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "patch_v1_projects_pid",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "delete_v1_projects_pid",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/export": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_export",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/artifacts": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_artifacts",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_artifacts",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/artifacts/{aid}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_artifacts_aid",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "aid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "put_v1_projects_pid_artifacts_aid",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "aid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "delete_v1_projects_pid_artifacts_aid",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "aid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/artifacts/{aid}/revisions": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_artifacts_aid_revisions",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "aid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/artifacts/{aid}/restore": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_artifacts_aid_restore",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "aid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/artifacts/{aid}/download": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_artifacts_aid_download",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "aid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/assets": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_assets",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/assets/{id}": {
+      "get": {
+        "tags": [
+          "assets"
+        ],
+        "operationId": "get_v1_assets_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/generate": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_generate",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/runs": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_runs",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/runs": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "get_v1_runs",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/runs/{rid}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "get_v1_runs_rid",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/runs/{rid}/cancel": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "post_v1_runs_rid_cancel",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/runs/{rid}/retry": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "post_v1_runs_rid_retry",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/runs/{rid}/events": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "get_v1_runs_rid_events",
+        "parameters": [
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/approvals": {
+      "get": {
+        "tags": [
+          "approvals"
+        ],
+        "operationId": "get_v1_approvals",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/approvals/{id}": {
+      "post": {
+        "tags": [
+          "approvals"
+        ],
+        "operationId": "post_v1_approvals_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces": {
+      "get": {
+        "tags": [
+          "workspaces"
+        ],
+        "operationId": "get_v1_workspaces",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        }
+      }
+    },
+    "/v1/projects/{pid}/operations/{op}": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_operations_op",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "op",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/files": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_files",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/files/{path}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_files_path",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "put_v1_projects_pid_files_path",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "delete_v1_projects_pid_files_path",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/file-history/{path}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_file_history_path",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/exec": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_exec",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/test": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_test",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/diagnostics": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_diagnostics",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/git/commit": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_git_commit",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/git/log": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_git_log",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/git/diff": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "get_v1_projects_pid_git_diff",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/git/checkout": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_git_checkout",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/preview": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_preview",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/preview/{tid}/{pid}/{token}/{path}": {
+      "get": {
+        "tags": [
+          "{tid}"
+        ],
+        "operationId": "get_preview_tid_pid_token_path",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
             "in": "path",
             "required": true,
             "schema": {
@@ -1350,639 +2486,363 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectExport"
-                }
-              }
-            }
+            "description": "Success"
           },
-          "400": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        }
+      }
+    },
+    "/v1/connections": {
+      "get": {
+        "tags": [
+          "connections"
+        ],
+        "operationId": "get_v1_connections",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
           },
-          "401": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
         },
-        "x-implementation": "live"
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "connections"
+        ],
+        "operationId": "post_v1_connections",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
       }
-    }
-  },
-  "components": {
-    "schemas": {
-      "ApiError": {
-        "type": "object",
-        "required": [
-          "code",
-          "message"
+    },
+    "/v1/connections/{id}/tools": {
+      "patch": {
+        "tags": [
+          "connections"
         ],
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "traceId": {
-            "type": "string"
-          }
-        }
-      },
-      "HealthResponse": {
-        "type": "object",
-        "required": [
-          "status",
-          "version"
-        ],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "ok"
-            ]
-          },
-          "version": {
-            "type": "string"
-          }
-        }
-      },
-      "CapabilitiesResponse": {
-        "type": "object",
-        "required": [
-          "workspaceKinds",
-          "availableProviders",
-          "generationEnabled"
-        ],
-        "properties": {
-          "workspaceKinds": {
-            "type": "array",
-            "items": {
+        "operationId": "patch_v1_connections_id_tools",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           },
-          "availableProviders": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Provider"
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
-          },
-          "generationEnabled": {
-            "type": "boolean"
           }
-        }
-      },
-      "Provider": {
-        "type": "object",
-        "required": [
-          "id",
-          "model",
-          "capabilities",
-          "available"
         ],
-        "properties": {
-          "id": {
-            "type": "string"
+        "responses": {
+          "200": {
+            "description": "Success"
           },
-          "model": {
-            "type": "string"
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
           },
-          "capabilities": {
-            "type": "array",
-            "items": {
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/connections/{id}": {
+      "delete": {
+        "tags": [
+          "connections"
+        ],
+        "operationId": "delete_v1_connections_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           },
-          "available": {
-            "type": "boolean"
-          }
-        }
-      },
-      "ProjectCreate": {
-        "type": "object",
-        "required": [
-          "title",
-          "kind"
-        ],
-        "properties": {
-          "title": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          }
-        }
-      },
-      "ProjectUpdate": {
-        "type": "object",
-        "required": [
-          "expectedRevision"
-        ],
-        "properties": {
-          "expectedRevision": {
-            "type": "integer"
-          },
-          "title": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          }
-        }
-      },
-      "Project": {
-        "type": "object",
-        "required": [
-          "id",
-          "title",
-          "kind",
-          "revision"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "revision": {
-            "type": "integer"
-          }
-        }
-      },
-      "ProjectList": {
-        "type": "object",
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Project"
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
-        }
-      },
-      "ArtifactCreate": {
-        "type": "object",
-        "required": [
-          "mediaType",
-          "checksum"
         ],
-        "properties": {
-          "mediaType": {
-            "type": "string"
+        "responses": {
+          "200": {
+            "description": "Success"
           },
-          "checksum": {
-            "type": "string"
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
           },
-          "parents": {
-            "type": "array",
-            "items": {
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/tool-audit": {
+      "get": {
+        "tags": [
+          "tool-audit"
+        ],
+        "operationId": "get_v1_tool_audit",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/schedules": {
+      "get": {
+        "tags": [
+          "schedules"
+        ],
+        "operationId": "get_v1_schedules",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{pid}/schedules": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "post_v1_projects_pid_schedules",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           },
-          "title": {
-            "type": "string"
-          },
-          "body": {},
-          "assetId": {
-            "type": "string"
-          },
-          "rights": {
-            "type": "object"
-          },
-          "provenance": {
-            "type": "object"
-          }
-        }
-      },
-      "Artifact": {
-        "type": "object",
-        "required": [
-          "id",
-          "projectId",
-          "mediaType",
-          "checksum",
-          "revision"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "mediaType": {
-            "type": "string"
-          },
-          "checksum": {
-            "type": "string"
-          },
-          "revision": {
-            "type": "integer"
-          }
-        }
-      },
-      "ArtifactList": {
-        "type": "object",
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Artifact"
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
-        }
-      },
-      "WorkflowCreate": {
-        "type": "object",
-        "required": [
-          "name",
-          "nodes"
         ],
-        "properties": {
-          "name": {
-            "type": "string"
+        "responses": {
+          "201": {
+            "description": "Success"
           },
-          "nodes": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
+          "4XX": {
+            "description": "Error {code,message}"
           }
-        }
-      },
-      "Workflow": {
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "version"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
+        },
+        "security": [
+          {
+            "bearerAuth": []
           },
-          "name": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer"
+          {
+            "sessionCookie": []
           }
-        }
-      },
-      "WorkflowList": {
-        "type": "object",
-        "required": [
-          "items"
+        ]
+      }
+    },
+    "/v1/schedules/{id}": {
+      "patch": {
+        "tags": [
+          "schedules"
         ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Workflow"
-            }
-          }
-        }
-      },
-      "RunCreate": {
-        "type": "object",
-        "required": [
-          "projectId",
-          "workflowId",
-          "maxCostMicrounits"
-        ],
-        "properties": {
-          "projectId": {
-            "type": "string"
-          },
-          "workflowId": {
-            "type": "string"
-          },
-          "maxCostMicrounits": {
-            "type": "integer"
-          }
-        }
-      },
-      "Run": {
-        "type": "object",
-        "required": [
-          "id",
-          "status",
-          "projectId"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "running",
-              "paused",
-              "completed",
-              "failed",
-              "cancelled"
-            ]
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ApiError"
-          }
-        }
-      },
-      "ApprovalDecision": {
-        "type": "object",
-        "required": [
-          "decision"
-        ],
-        "properties": {
-          "decision": {
-            "type": "string",
-            "enum": [
-              "approve",
-              "deny"
-            ]
-          }
-        }
-      },
-      "Approval": {
-        "type": "object",
-        "required": [
-          "id",
-          "status",
-          "action"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "approved",
-              "denied",
-              "expired"
-            ]
-          },
-          "action": {
-            "type": "string"
-          }
-        }
-      },
-      "Usage": {
-        "type": "object",
-        "required": [
-          "spentMicrounits",
-          "reservedMicrounits",
-          "currency"
-        ],
-        "properties": {
-          "spentMicrounits": {
-            "type": "integer"
-          },
-          "reservedMicrounits": {
-            "type": "integer"
-          },
-          "currency": {
-            "type": "string"
-          }
-        }
-      },
-      "ModelRecord": {
-        "type": "object",
-        "required": [
-          "id",
-          "provider",
-          "model",
-          "revision",
-          "operations",
-          "modalities",
-          "regions",
-          "licenseScope",
-          "priceStatus",
-          "healthStatus",
-          "available",
-          "reasons"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "provider": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "revision": {
-            "type": "string"
-          },
-          "operations": {
-            "type": "array",
-            "items": {
+        "operationId": "patch_v1_schedules_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           },
-          "modalities": {
-            "type": "array",
-            "items": {
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "schedules"
+        ],
+        "operationId": "delete_v1_schedules_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
               "type": "string"
             }
           },
-          "regions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "licenseScope": {
-            "type": "string",
-            "enum": [
-              "none",
-              "personal",
-              "commercial"
-            ]
-          },
-          "priceStatus": {
-            "type": "string",
-            "enum": [
-              "known",
-              "unknown"
-            ]
-          },
-          "healthStatus": {
-            "type": "string",
-            "enum": [
-              "healthy",
-              "degraded",
-              "outage",
-              "unknown"
-            ]
-          },
-          "available": {
-            "type": "boolean"
-          },
-          "reasons": {
-            "type": "array",
-            "items": {
-              "type": "string"
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
-        }
-      },
-      "ModelCatalogResponse": {
-        "type": "object",
-        "required": [
-          "items"
         ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ModelRecord"
-            }
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
           }
-        }
-      },
-      "ArtifactRevisionRequest": {
-        "type": "object",
-        "required": [
-          "expectedRevision",
-          "mediaType",
-          "checksum"
-        ],
-        "properties": {
-          "expectedRevision": {
-            "type": "integer"
+        },
+        "security": [
+          {
+            "bearerAuth": []
           },
-          "mediaType": {
-            "type": "string"
-          },
-          "checksum": {
-            "type": "string"
-          },
-          "body": {},
-          "assetId": {
-            "type": "string"
-          },
-          "rights": {
-            "type": "object"
-          },
-          "provenance": {
-            "type": "object"
+          {
+            "sessionCookie": []
           }
-        }
-      },
-      "ArtifactRestoreRequest": {
-        "type": "object",
-        "required": [
-          "expectedRevision",
-          "targetRevision"
-        ],
-        "properties": {
-          "expectedRevision": {
-            "type": "integer"
-          },
-          "targetRevision": {
-            "type": "integer"
-          }
-        }
-      },
-      "ArtifactHistory": {
-        "type": "object",
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          }
-        }
-      },
-      "ProjectExport": {
-        "type": "object",
-        "required": [
-          "schemaVersion",
-          "project",
-          "artifacts",
-          "sha256",
-          "binaryAssetsEmbedded"
-        ],
-        "properties": {
-          "schemaVersion": {
-            "type": "integer"
-          },
-          "project": {
-            "$ref": "#/components/schemas/Project"
-          },
-          "artifacts": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "sha256": {
-            "type": "string"
-          },
-          "binaryAssetsEmbedded": {
-            "type": "boolean"
-          },
-          "exportedAt": {
-            "type": "string"
-          }
-        }
+        ]
       }
     }
   }

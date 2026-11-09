@@ -1,87 +1,127 @@
-import {SCHEMAS} from './schemas.mjs';
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export class ApiContractError extends Error {constructor(message){super(message);this.name='ApiContractError';}}
-function check(value,schema,refPath='$'){
-  if(schema?.$ref){const key=schema.$ref.split('/').at(-1);if(!SCHEMAS[key])throw new ApiContractError('Unknown schema: '+key);return check(value,SCHEMAS[key],refPath);}
-  if(schema?.enum && !schema.enum.includes(value))throw new ApiContractError(refPath+': invalid enum value');
-  if(schema?.type==='object'){if(value===null||typeof value!=='object'||Array.isArray(value))throw new ApiContractError(refPath+': expected object');for(const field of schema.required||[]){if(!Object.prototype.hasOwnProperty.call(value,field))throw new ApiContractError(refPath+'.'+field+': required');}for(const [k,child] of Object.entries(schema.properties||{})){if(value[k]!==undefined)check(value[k],child,refPath+'.'+k);}return value;}
-  if(schema?.type==='array'){if(!Array.isArray(value))throw new ApiContractError(refPath+': expected array');value.forEach((x,i)=>check(x,schema.items,refPath+'['+i+']'));return value;}
-  if(schema?.type==='string' && typeof value!=='string')throw new ApiContractError(refPath+': expected string');
-  if(schema?.type==='number' && (typeof value!=='number'||!Number.isFinite(value)))throw new ApiContractError(refPath+': expected number');
-  if(schema?.type==='integer' && !Number.isSafeInteger(value))throw new ApiContractError(refPath+': expected integer');
-  if(schema?.type==='boolean' && typeof value!=='boolean')throw new ApiContractError(refPath+': expected boolean');
-  return value;
+// Superintelligence Engine client for companion applications (Academy, Command Center) and scripts.
+// Server-side use: pass an API token. Browser use with SSO cookies: omit token, set credentials:'include'.
+export class EngineError extends Error {
+  constructor(status,body){super(body?.message||body?.code||`HTTP ${status}`);this.name='EngineError';this.status=status;this.code=body?.code;this.body=body;}
 }
-function parseRunEventReplay(text){
-  if(typeof text!=='string')throw new ApiContractError('Run event replay must be text');
-  const events=[];let cursor=null;
-  for(const block of text.split(/\r?\n\r?\n/)){
-    if(!block.trim())continue;
-    let id=null,type='message';const data=[];
-    for(const line of block.split(/\r?\n/)){
-      if(line.startsWith(':'))continue;
-      const separator=line.indexOf(':'),field=separator===-1?line:line.slice(0,separator);
-      const value=separator===-1?'':line.slice(separator+1).replace(/^ /,'');
-      if(field==='id')id=value;else if(field==='event')type=value;else if(field==='data')data.push(value);
+const enc=encodeURIComponent;
+
+/** Parse a text/event-stream response body into {event,data,id} objects. */
+export async function* readEvents(response,{signal}={}){
+  const reader=response.body.getReader(),dec=new TextDecoder();let buf='';
+  const onAbort=()=>reader.cancel().catch(()=>{});signal?.addEventListener('abort',onAbort);
+  try{
+    while(true){
+      const {done,value}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});
+      let i;
+      while((i=buf.indexOf('\n\n'))>=0){
+        const frame=buf.slice(0,i);buf=buf.slice(i+2);if(frame.startsWith(':'))continue;
+        const event=/^event: (.*)$/m.exec(frame)?.[1]||'message';const data=/^data: (.*)$/m.exec(frame)?.[1];const id=/^id: (.*)$/m.exec(frame)?.[1];
+        if(data!==undefined)yield {event,data:JSON.parse(data),id:id?Number(id):undefined};
+      }
     }
-    let payload;try{payload=JSON.parse(data.join('\n'))}catch{throw new ApiContractError('Malformed run event data')}
-    if(type==='replay-end'){
-      if(!Number.isSafeInteger(payload?.cursor)||payload.cursor<0)throw new ApiContractError('Malformed replay cursor');
-      cursor=payload.cursor;continue;
-    }
-    const eventId=Number(id);
-    if(!Number.isSafeInteger(eventId)||eventId<1||!type)throw new ApiContractError('Malformed run event');
-    if(payload===null||typeof payload!=='object'||Array.isArray(payload)||!Object.prototype.hasOwnProperty.call(payload,'payload'))throw new ApiContractError('Malformed run event payload');
-    events.push({id:eventId,type,payload:payload.payload,createdAt:payload.createdAt});
-  }
-  if(cursor===null)throw new ApiContractError('Run event replay is incomplete');
-  if(events.some(event=>event.id>cursor))throw new ApiContractError('Replay cursor precedes an event');
-  return {events,cursor};
+  }finally{signal?.removeEventListener('abort',onAbort);}
 }
-function runScope(runId,{tenantId,product}={}){
-  if(typeof runId!=='string'||!UUID.test(runId))throw new TypeError('runId must be a UUID');
-  if(typeof tenantId!=='string'||!UUID.test(tenantId))throw new TypeError('tenantId must be a UUID');
-  if(!['academy','command'].includes(product))throw new TypeError('product must be academy or command');
-  return {tenantId,product};
-}
-function runRecord(value){
-  if(value===null||typeof value!=='object'||Array.isArray(value))throw new ApiContractError('Run response must be an object');
-  for(const field of ['id','tenantId','projectId'])if(typeof value[field]!=='string'||!UUID.test(value[field]))throw new ApiContractError('Malformed run '+field);
-  if(!['queued','blocked','completed','failed','cancelled'].includes(value.status))throw new ApiContractError('Malformed run status');
-  if(typeof value.createdAt!=='string')throw new ApiContractError('Malformed run timestamp');
-  if(value.replayed!==undefined&&typeof value.replayed!=='boolean')throw new ApiContractError('Malformed replay flag');
-  return value;
-}
-export function validateResponse(schemaName,value){if(!SCHEMAS[schemaName])throw new ApiContractError('Unknown contract '+schemaName);return check(value,SCHEMAS[schemaName]);}
+
 export class EngineClient {
-  constructor({baseUrl,fetchImpl=fetch}={}) {if(!baseUrl)throw new TypeError('baseUrl required');const url=new URL(baseUrl);if(!['https:','http:'].includes(url.protocol))throw new TypeError('Unsupported URL');this.baseUrl=url.toString();this.fetchImpl=fetchImpl;}
-  async requestValidated(method,path,body,responseSchema,signal){
-    const response=await this.fetchImpl(new URL(path,this.baseUrl),{method,credentials:'include',headers:{'Accept':'application/json',...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal});
-    if(!response.ok) {let code='http_error';try {const error=await response.json();code=typeof error.code==='string'?error.code:code;}catch{};const error=new Error('Engine API '+response.status+': '+code);error.status=response.status;throw error;}
-    const result=await response.json();return responseSchema?validateResponse(responseSchema,result):result;
+  /**
+   * @param {{baseUrl:string, token?:string, tenantId?:string, product?:'academy'|'command'|'engine', fetchImpl?:typeof fetch, credentials?:RequestCredentials}} options
+   */
+  constructor({baseUrl,token,tenantId,product,fetchImpl=globalThis.fetch,credentials}={}){
+    if(!baseUrl)throw new TypeError('baseUrl is required');
+    this.base=String(baseUrl).replace(/\/$/,'');this.token=token;this.tenantId=tenantId;this.product=product;this.fetch=fetchImpl;this.credentials=credentials;
   }
-  async health(){return this.requestValidated('GET','/health',undefined,'HealthResponse');}
-  async capabilities(){return this.requestValidated('GET','/v1/capabilities',undefined,'CapabilitiesResponse');}
-  async runControl(method,runId,{tenantId,product,action='',body,signal}={}){
-    runScope(runId,{tenantId,product});
-    const response=await this.fetchImpl(new URL('/v1/runs/'+encodeURIComponent(runId)+(action?'/'+action:''),this.baseUrl),{method,credentials:'include',headers:{'Accept':'application/json','X-SIE-Product':product,'X-Tenant-ID':tenantId,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),signal});
-    if(!response.ok){let code='http_error';try{const error=await response.json();code=typeof error.code==='string'?error.code:code}catch{}const error=new Error('Engine API '+response.status+': '+code);error.status=response.status;throw error}
-    return runRecord(await response.json());
+  /** Return a client bound to another tenant. */
+  forTenant(tenantId){return new EngineClient({baseUrl:this.base,token:this.token,tenantId,product:this.product,fetchImpl:this.fetch,credentials:this.credentials});}
+  headers(extra={}){return {...(this.token?{Authorization:'Bearer '+this.token}:{}),...(this.tenantId?{'X-Tenant-Id':this.tenantId}:{}),...(this.product?{'X-SIE-Product':this.product}:{}),...extra};}
+  async raw(method,path,{body,headers={},signal}={}){
+    const isBytes=body instanceof Uint8Array||(typeof Blob!=='undefined'&&body instanceof Blob);
+    return this.fetch(this.base+path,{method,signal,credentials:this.credentials,headers:this.headers({...(body!==undefined&&!isBytes?{'Content-Type':'application/json'}:{}),...headers}),
+      body:body===undefined?undefined:isBytes?body:JSON.stringify(body)});
   }
-  async inspectRun(runId,options={}){return this.runControl('GET',runId,options)}
-  async cancelRun(runId,options={}){return this.runControl('POST',runId,{...options,action:'cancel'})}
-  async retryRun(runId,{idempotencyKey,...options}={}){
-    if(typeof idempotencyKey!=='string'||!/^[A-Za-z0-9_.:-]{1,128}$/.test(idempotencyKey))throw new TypeError('idempotencyKey is invalid');
-    return this.runControl('POST',runId,{...options,action:'retry',body:{idempotencyKey}});
+  async request(method,path,body,opts={}){
+    const res=await this.raw(method,path,{...opts,body});
+    const text=await res.text();let data=null;try{data=text?JSON.parse(text):null}catch{data={message:text}}
+    if(!res.ok)throw new EngineError(res.status,data);
+    return data;
   }
-  async replayRunEvents(runId,{tenantId,product,after=0,signal}={}){
-    if(typeof runId!=='string'||!UUID.test(runId))throw new TypeError('runId must be a UUID');
-    if(typeof tenantId!=='string'||!UUID.test(tenantId))throw new TypeError('tenantId must be a UUID');
-    if(!['academy','command'].includes(product))throw new TypeError('product must be academy or command');
-    if(!Number.isSafeInteger(after)||after<0)throw new TypeError('after must be a non-negative safe integer');
-    const response=await this.fetchImpl(new URL('/v1/runs/'+encodeURIComponent(runId)+'/events',this.baseUrl),{method:'GET',credentials:'include',headers:{'Accept':'text/event-stream','X-SIE-Product':product,'X-Tenant-ID':tenantId,'Last-Event-ID':String(after)},signal});
-    if(!response.ok){let code='http_error';try{const error=await response.json();code=typeof error.code==='string'?error.code:code}catch{}const error=new Error('Engine API '+response.status+': '+code);error.status=response.status;throw error}
-    if(!response.headers?.get('content-type')?.toLowerCase().startsWith('text/event-stream'))throw new ApiContractError('Expected run event stream');
-    return parseRunEventReplay(await response.text());
+  async stream(method,path,body,{signal}={}){
+    const res=await this.raw(method,path,{body,signal,headers:{Accept:'text/event-stream'}});
+    if(!res.ok){let d=null;try{d=await res.json()}catch{}throw new EngineError(res.status,d);}
+    return readEvents(res,{signal});
   }
+  // ---- platform ----
+  health(){return this.request('GET','/health')}
+  ready(){return this.request('GET','/ready')}
+  capabilities(){return this.request('GET','/v1/capabilities')}
+  me(){return this.request('GET','/v1/me')}
+  devLogin(handle){return this.request('POST','/v1/dev/login',{handle})}
+  createToken({label,days,product}={}){return this.request('POST','/v1/tokens',{label,days,product})}
+  revokeToken(id){return this.request('DELETE',`/v1/tokens/${enc(id)}`)}
+  tenants(){return this.request('GET','/v1/tenants')}
+  createTenant(name){return this.request('POST','/v1/tenants',{name})}
+  members(tenantId=this.tenantId){return this.request('GET',`/v1/tenants/${enc(tenantId)}/members`)}
+  setMember({identityId,email,role},tenantId=this.tenantId){return this.request('PUT',`/v1/tenants/${enc(tenantId)}/members`,{identityId,email,role})}
+  // ---- models, providers, budget ----
+  models({capability}={}){return this.request('GET','/v1/models'+(capability?`?capability=${enc(capability)}`:''))}
+  providers(){return this.request('GET','/v1/providers')}
+  setProviderCredential(provider,{apiKey,baseUrl}){return this.request('PUT',`/v1/providers/${enc(provider)}`,{apiKey,baseUrl})}
+  budget(){return this.request('GET','/v1/budget')}
+  // ---- projects & artifacts ----
+  projects({q,archived}={}){return this.request('GET','/v1/projects'+(q||archived?`?${new URLSearchParams({...(q?{q}:{}),...(archived?{archived:'1'}:{})})}`:''))}
+  createProject({title,kind='general',description}){return this.request('POST','/v1/projects',{title,kind,description})}
+  project(id){return this.request('GET',`/v1/projects/${enc(id)}`)}
+  updateProject(id,patch){return this.request('PATCH',`/v1/projects/${enc(id)}`,patch)}
+  deleteProject(id){return this.request('DELETE',`/v1/projects/${enc(id)}`)}
+  exportProject(id,{assets=true}={}){return this.request('GET',`/v1/projects/${enc(id)}/export${assets?'':'?assets=0'}`)}
+  importProject(bundle){return this.request('POST','/v1/projects/import',bundle)}
+  artifacts(projectId,{kind,q}={}){const qs=new URLSearchParams({...(kind?{kind}:{}),...(q?{q}:{})}).toString();return this.request('GET',`/v1/projects/${enc(projectId)}/artifacts${qs?'?'+qs:''}`)}
+  artifact(projectId,artifactId,{revision}={}){return this.request('GET',`/v1/projects/${enc(projectId)}/artifacts/${enc(artifactId)}${revision?`?revision=${revision}`:''}`)}
+  createArtifact(projectId,{title,kind,text,body,mediaType,assetId,provenance}){return this.request('POST',`/v1/projects/${enc(projectId)}/artifacts`,{title,kind,text,body,mediaType,assetId,provenance})}
+  reviseArtifact(projectId,artifactId,{text,body,mediaType,assetId,title,expectedRevision}){return this.request('PUT',`/v1/projects/${enc(projectId)}/artifacts/${enc(artifactId)}`,{text,body,mediaType,assetId,title,expectedRevision})}
+  artifactHistory(projectId,artifactId){return this.request('GET',`/v1/projects/${enc(projectId)}/artifacts/${enc(artifactId)}/revisions`)}
+  restoreArtifact(projectId,artifactId,revision,expectedRevision){return this.request('POST',`/v1/projects/${enc(projectId)}/artifacts/${enc(artifactId)}/restore`,{revision,expectedRevision})}
+  deleteArtifact(projectId,artifactId){return this.request('DELETE',`/v1/projects/${enc(projectId)}/artifacts/${enc(artifactId)}`)}
+  async downloadArtifact(projectId,artifactId,{revision}={}){const r=await this.raw('GET',`/v1/projects/${enc(projectId)}/artifacts/${enc(artifactId)}/download${revision?`?revision=${revision}`:''}`);if(!r.ok)throw new EngineError(r.status,null);return {mediaType:r.headers.get('content-type'),bytes:new Uint8Array(await r.arrayBuffer())};}
+  uploadAsset(projectId,bytes,{mediaType,title,kind}={}){const qs=new URLSearchParams({...(title?{title}:{}),...(kind?{kind}:{})}).toString();return this.request('POST',`/v1/projects/${enc(projectId)}/assets${qs?'?'+qs:''}`,bytes,{headers:{'Content-Type':mediaType||'application/octet-stream'}});}
+  // ---- generation ----
+  /** Streamed generation. Yields {event:'token'|'run'|'result'|'error', data}. Output is persisted as an artifact. */
+  generateStream(projectId,{prompt,model,outputSchema,tools,system,title,budgetCeilingMicro,maxOutputTokens},{signal}={}){return this.stream('POST',`/v1/projects/${enc(projectId)}/generate`,{prompt,model,outputSchema,tools,system,title,budgetCeilingMicro,maxOutputTokens,stream:true},{signal});}
+  generate(projectId,input){return this.request('POST',`/v1/projects/${enc(projectId)}/generate`,{...input,stream:false})}
+  // ---- runs (multi-agent workflows) ----
+  startRun(projectId,spec,{idempotencyKey}={}){return this.request('POST',`/v1/projects/${enc(projectId)}/runs`,{spec,idempotencyKey})}
+  runOperation(projectId,operationId,input,{model,budgetCeilingMicro,idempotencyKey}={}){return this.request('POST',`/v1/projects/${enc(projectId)}/operations/${enc(operationId)}`,{input,model,budgetCeilingMicro,idempotencyKey})}
+  workspaces(){return this.request('GET','/v1/workspaces')}
+  runs({projectId,status,limit}={}){const qs=new URLSearchParams({...(projectId?{projectId}:{}),...(status?{status}:{}),...(limit?{limit:String(limit)}:{})}).toString();return this.request('GET','/v1/runs'+(qs?'?'+qs:''))}
+  run(id){return this.request('GET',`/v1/runs/${enc(id)}`)}
+  cancelRun(id){return this.request('POST',`/v1/runs/${enc(id)}/cancel`)}
+  retryRun(id){return this.request('POST',`/v1/runs/${enc(id)}/retry`)}
+  runEvents(id,{after=0}={}){return this.request('GET',`/v1/runs/${enc(id)}/events?stream=0&after=${after}`)}
+  /** Live run events (replay from `after`, then follow until the run finishes). */
+  followRun(id,{after=0,signal}={}){return this.stream('GET',`/v1/runs/${enc(id)}/events?after=${after}`,undefined,{signal})}
+  async waitForRun(id,{signal,timeoutMs=600000}={}){
+    const end=Date.now()+timeoutMs;
+    while(Date.now()<end){const r=await this.run(id);if(['succeeded','failed','cancelled','awaiting_approval'].includes(r.status))return r;if(signal?.aborted)throw new Error('aborted');await new Promise(x=>setTimeout(x,1000));}
+    throw new Error('timeout waiting for run');
+  }
+  approvals({status='pending'}={}){return this.request('GET',`/v1/approvals?status=${enc(status)}`)}
+  decide(approvalId,decision,note){return this.request('POST',`/v1/approvals/${enc(approvalId)}`,{decision,note})}
+  // ---- code workspace ----
+  files(projectId){return this.request('GET',`/v1/projects/${enc(projectId)}/files`)}
+  readFile(projectId,path){return this.request('GET',`/v1/projects/${enc(projectId)}/files/${path.split('/').map(enc).join('/')}`)}
+  writeFile(projectId,path,content,{expectedRevision}={}){return this.request('PUT',`/v1/projects/${enc(projectId)}/files/${path.split('/').map(enc).join('/')}`,{content,expectedRevision})}
+  deleteFile(projectId,path){return this.request('DELETE',`/v1/projects/${enc(projectId)}/files/${path.split('/').map(enc).join('/')}`)}
+  exec(projectId,{command,language,code,persist,timeoutMs,stdin}){return this.request('POST',`/v1/projects/${enc(projectId)}/exec`,{command,language,code,persist,timeoutMs,stdin})}
+  test(projectId,{command}={}){return this.request('POST',`/v1/projects/${enc(projectId)}/test`,{command})}
+  diagnostics(projectId){return this.request('GET',`/v1/projects/${enc(projectId)}/diagnostics`)}
+  commit(projectId,message){return this.request('POST',`/v1/projects/${enc(projectId)}/git/commit`,{message})}
+  gitLog(projectId){return this.request('GET',`/v1/projects/${enc(projectId)}/git/log`)}
+  gitDiff(projectId,{from,to}={}){const qs=new URLSearchParams({...(from?{from}:{}),...(to?{to}:{})}).toString();return this.request('GET',`/v1/projects/${enc(projectId)}/git/diff${qs?'?'+qs:''}`)}
+  checkout(projectId,commit){return this.request('POST',`/v1/projects/${enc(projectId)}/git/checkout`,{commit})}
+  previewUrl(projectId,path='index.html'){return this.request('POST',`/v1/projects/${enc(projectId)}/preview`,{path}).then(r=>({...r,url:this.base+r.url}))}
+  // ---- integrations & schedules ----
+  connections(){return this.request('GET','/v1/connections')}
+  addConnection({kind,name,endpoint,secret,tools}){return this.request('POST','/v1/connections',{kind,name,endpoint,secret,tools})}
+  schedules({projectId}={}){return this.request('GET','/v1/schedules'+(projectId?`?projectId=${enc(projectId)}`:''))}
+  createSchedule(projectId,{title,cron,timezone,spec,condition}){return this.request('POST',`/v1/projects/${enc(projectId)}/schedules`,{title,cron,timezone,spec,condition})}
+  updateSchedule(id,patch){return this.request('PATCH',`/v1/schedules/${enc(id)}`,patch)}
 }
