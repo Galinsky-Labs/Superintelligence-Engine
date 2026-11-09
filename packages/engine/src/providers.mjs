@@ -122,7 +122,7 @@ export class OpenAIAdapter {
 
 // ---------------- Anthropic (official SDK) ----------------
 export class AnthropicAdapter {
-  constructor({apiKey,baseUrl,client}){this.id='anthropic';this.client=client||new Anthropic({apiKey,...(baseUrl?{baseURL:baseUrl}:{}),maxRetries:2});}
+  constructor({apiKey,baseUrl,client}){this.id='anthropic';this.client=client||new Anthropic({apiKey,baseURL:baseUrl||'https://api.anthropic.com',maxRetries:2});}
   toMessages(messages){
     const out=[];
     for(const m of messages){
