@@ -84,10 +84,12 @@ export class Sandbox {
       const cpu=cpuSeconds||Math.max(1,Math.ceil(timeoutMs/1000));
       let bin,args;
       if(this.backend==='bwrap'){
-        bin='bwrap';args=[...this.bwrapArgs(work,{memoryMb,cpuSeconds:cpu,maxProcs}),...argv];
+        const dedicatedUid=process.getuid?.()===0&&process.env.SIE_SANDBOX_DROP_UID!=='0';
+        // Without a dedicated UID, RLIMIT_NPROC would count every process of the shared host user.
+        bin='bwrap';args=[...this.bwrapArgs(work,{memoryMb,cpuSeconds:cpu,maxProcs:dedicatedUid?maxProcs:Math.max(maxProcs,8192)}),...argv];
         // When the engine runs as root, each execution gets its own unprivileged host UID so
         // process-count limits apply and nothing inside can act with host-root identity.
-        if(process.getuid?.()===0&&process.env.SIE_SANDBOX_DROP_UID!=='0'){
+        if(dedicatedUid){
           const uid=200000+(uidCounter++%60000);await chownTree(work,uid);await chmod(work,0o700);
           args=['--reuid='+uid,'--regid='+uid,'--clear-groups','--inh-caps=-all','bwrap',...args];bin='setpriv';
         }

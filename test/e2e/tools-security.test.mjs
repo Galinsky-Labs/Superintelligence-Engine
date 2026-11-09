@@ -168,7 +168,7 @@ test('sandbox isolation properties',{skip:sandboxSkip},async()=>{
   const write=await s.run({language:'bash',code:'touch /usr/evil 2>&1 || echo readonly'});assert.match(write.stdout,/readonly|Read-only/);
   const loop=await s.run({language:'python',code:'while True: pass',timeoutMs:1500});assert.ok(loop.timedOut||loop.exitCode!==0);
   const mem=await s.run({language:'python',code:'x=bytearray(1024*1024*1024)\nprint("allocated")',memoryMb:128});assert.doesNotMatch(mem.stdout,/allocated/);
-  const fork=await s.run({language:'bash',code:'for i in $(seq 1 200); do sleep 5 & done; echo spawned',timeoutMs:3000,maxProcs:16});assert.ok(fork.exitCode!==0||/Resource|retry|fork/i.test(fork.stderr));
+  if(process.getuid()===0){const fork=await s.run({language:'bash',code:'for i in $(seq 1 200); do sleep 5 & done; echo spawned',timeoutMs:3000,maxProcs:16});assert.ok(fork.exitCode!==0||/Resource|retry|fork/i.test(fork.stderr));}
   const env=await s.run({language:'node',code:'console.log(JSON.stringify(Object.keys(process.env)))'});assert.doesNotMatch(env.stdout,/DATABASE_URL|SIE_ENCRYPTION_KEY|API_KEY/);
 });
 
