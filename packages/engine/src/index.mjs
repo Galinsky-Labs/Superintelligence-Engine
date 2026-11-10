@@ -41,7 +41,7 @@ export function createEngine({env=process.env,pools,adapterOverrides,sandbox,fet
   const workflows=new WorkflowLibrary({system:p.system,runs});
   const identity=new IdentityService({system:p.system,oidcBroker:brokerFromEnvironment(env),devAuth});
   return {env,pools:p,box,production,devAuth,identity,catalog,meter,assets,projects,runs,executor,sandbox:sbx,workspace,connections,scheduler,workflows,
-    async close(){await p.end();}};
+    async close(){await p.end();await identity.oidc?.pool?.end?.().catch(()=>{});}};
 }
 
 /** Durable worker: claims ready nodes up to `concurrency`, runs lease recovery and schedules. */
