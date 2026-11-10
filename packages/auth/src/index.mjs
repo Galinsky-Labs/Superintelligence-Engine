@@ -72,5 +72,6 @@ export function brokerFromEnvironment(env=process.env){
  if(!env.OIDC_ISSUER||!env.SESSION_ENCRYPTION_KEY_HEX||!env.AUTH_DATABASE_URL)return null;
  const clients={academy:{clientId:env.OIDC_ACADEMY_CLIENT_ID,clientSecret:env.OIDC_ACADEMY_CLIENT_SECRET,redirectUri:env.OIDC_ACADEMY_REDIRECT_URI},command:{clientId:env.OIDC_COMMAND_CLIENT_ID,clientSecret:env.OIDC_COMMAND_CLIENT_SECRET,redirectUri:env.OIDC_COMMAND_REDIRECT_URI}};
  const pool=new pg.Pool({connectionString:env.AUTH_DATABASE_URL,max:8});
+ pool.on('error',()=>{}); // idle-connection errors are retried on next checkout
  return new AuthBroker({pool,driver:new OIDCDriver({issuer:env.OIDC_ISSUER,clients}),encryptionKeyHex:env.SESSION_ENCRYPTION_KEY_HEX});
 }
