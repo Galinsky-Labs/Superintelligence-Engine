@@ -48,6 +48,9 @@ async function readBytes(res){
   const len=Number(res.headers.get('content-length')||0);if(len>MAX_BYTES)throw new ProviderError('response_limit','Media too large');
   const b=Buffer.from(await res.arrayBuffer());if(b.length>MAX_BYTES)throw new ProviderError('response_limit','Media too large');return b;
 }
+/** User content is a string or parts [{type:'text',text}|{type:'image',mediaType,data(base64)}]. */
+export const textOf=c=>typeof c==='string'?c:(c||[]).filter(p=>p.type==='text').map(p=>p.text).join('\n');
+const partsOf=c=>typeof c==='string'?[{type:'text',text:c}]:c;
 function safeJSON(text){try{return JSON.parse(text||'{}')}catch{return {_invalid:text}}}
 
 // ---------------- OpenAI and OpenAI-compatible (chat completions) ----------------
@@ -57,7 +60,7 @@ export class OpenAIAdapter {
   toMessages(system,messages){
     const out=system?[{role:'system',content:system}]:[];
     for(const m of messages){
-      if(m.role==='user')out.push({role:'user',content:m.content});
+      if(m.role==='user')out.push({role:'user',content:typeof m.content==='string'?m.content:partsOf(m.content).map(p=>p.type==='image'?{type:'image_url',image_url:{url:`data:${p.mediaType};base64,${p.data}`}}:{type:'text',text:p.text})});
       else if(m.role==='assistant')out.push({role:'assistant',content:m.content||null,...(m.toolCalls?.length?{tool_calls:m.toolCalls.map(t=>({id:t.id,type:'function',function:{name:t.name,arguments:JSON.stringify(t.input||{})}}))}:{})});
       else if(m.role==='tool')out.push({role:'tool',tool_call_id:m.toolCallId,content:m.content});
     }
@@ -126,7 +129,7 @@ export class AnthropicAdapter {
   toMessages(messages){
     const out=[];
     for(const m of messages){
-      if(m.role==='user')out.push({role:'user',content:m.content});
+      if(m.role==='user')out.push({role:'user',content:typeof m.content==='string'?m.content:partsOf(m.content).map(p=>p.type==='image'?{type:'image',source:{type:'base64',media_type:p.mediaType,data:p.data}}:{type:'text',text:p.text})});
       else if(m.role==='assistant'){
         if(m.raw?.provider==='anthropic')out.push({role:'assistant',content:m.raw.content});
         else{const content=[];if(m.content)content.push({type:'text',text:m.content});for(const t of m.toolCalls||[])content.push({type:'tool_use',id:t.id,name:t.name,input:t.input||{}});out.push({role:'assistant',content:content.length?content:''});}
@@ -176,7 +179,7 @@ export class GeminiAdapter {
   async *chat({model,system,messages,tools=[],outputSchema,maxOutputTokens=8192,signal}){
     const contents=[];
     for(const m of messages){
-      if(m.role==='user')contents.push({role:'user',parts:[{text:m.content}]});
+      if(m.role==='user')contents.push({role:'user',parts:partsOf(m.content).map(p=>p.type==='image'?{inlineData:{mimeType:p.mediaType,data:p.data}}:{text:p.text})});
       else if(m.role==='assistant'){const parts=[];if(m.content)parts.push({text:m.content});for(const t of m.toolCalls||[])parts.push({functionCall:{name:t.name,args:t.input||{}}});contents.push({role:'model',parts});}
       else if(m.role==='tool')contents.push({role:'user',parts:[{functionResponse:{name:m.name,response:{content:m.content}}}]});
     }
@@ -297,11 +300,12 @@ export class DeterministicAdapter {
   async *chat({model,system,messages,tools=[],outputSchema,maxOutputTokens=4096,signal}){
     const last=[...messages].reverse().find(m=>m.role==='user');
     const afterLastUser=messages.slice(messages.lastIndexOf(last)+1);
-    const transcript=JSON.stringify({system,messages:messages.map(m=>({role:m.role,content:m.content}))});
+    const images=typeof last?.content==='string'?[]:(last?.content||[]).filter(p=>p.type==='image');
+    const transcript=JSON.stringify({system,messages:messages.map(m=>({role:m.role,content:textOf(m.content)}))});
     const inputTokens=approxTokens(transcript);
     const id='sim_'+sha256(transcript).slice(0,16);
     // Tool directive: "CALL_TOOL <name> <json>" lines in the latest user message trigger tool calls once.
-    const directives=String(last?.content||'').split('\n').map(l=>/^CALL_TOOL\s+([A-Za-z0-9_-]+)\s+(\{.*\})\s*$/.exec(l.trim())).filter(Boolean);
+    const directives=textOf(last?.content).split('\n').map(l=>/^CALL_TOOL\s+([A-Za-z0-9_-]+)\s+(\{.*\})\s*$/.exec(l.trim())).filter(Boolean);
     if(tools.length&&directives.length&&!afterLastUser.some(m=>m.role==='tool')){
       let i=0;for(const d of directives){if(tools.some(t=>t.name===d[1]))yield {type:'tool_call',id:`${id}_t${i++}`,name:d[1],input:safeJSON(d[2])};}
       yield {type:'usage',inputTokens,outputTokens:20};yield {type:'done',responseId:id,model,stopReason:'tool_use'};return;
@@ -310,7 +314,8 @@ export class DeterministicAdapter {
     if(outputSchema)text=JSON.stringify(fromSchema(outputSchema,transcript));
     else{
       const toolNotes=afterLastUser.filter(m=>m.role==='tool').map(m=>`Tool ${m.name} returned: ${String(m.content).slice(0,400)}`);
-      const prompt=String(last?.content||'').replace(/\s+/g,' ').trim();
+      const prompt=textOf(last?.content).replace(/\s+/g,' ').trim();
+      if(images.length)toolNotes.unshift(`Received ${images.length} image(s): ${images.map(i=>`${i.mediaType} ${Math.round(i.data.length*3/4)} bytes (digest ${sha256(i.data).slice(0,8)})`).join(', ')}`);
       text=`[SIMULATED OUTPUT — deterministic test provider, not a real model]\nTask digest ${sha256(transcript).slice(0,10)}.\n`+
         (toolNotes.length?toolNotes.join('\n')+'\n':'')+`Response to: ${prompt.slice(0,600)}`;
     }

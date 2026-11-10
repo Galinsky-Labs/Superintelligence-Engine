@@ -239,6 +239,15 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
   route('GET','/v1/approvals',async c=>e.runs.listApprovals(c.principal,c.tenant,{status:c.query.has('status')?c.query.get('status')||null:'pending'}),{tenant:true});
   route('POST','/v1/approvals/:id',async c=>e.runs.decide(c.principal,c.tenant,c.params.id,await json(c.req)),{tenant:true});
 
+  // ---------------- saved workflows ----------------
+  route('GET','/v1/projects/:pid/workflows',async c=>e.workflows.list(c.principal,c.tenant,c.params.pid),{tenant:true});
+  route('POST','/v1/projects/:pid/workflows',async c=>e.workflows.create(c.principal,c.tenant,c.params.pid,await json(c.req)),{tenant:true,status:201});
+  route('GET','/v1/workflows/:id',async c=>e.workflows.get(c.principal,c.tenant,c.params.id),{tenant:true});
+  route('PUT','/v1/workflows/:id',async c=>e.workflows.update(c.principal,c.tenant,c.params.id,await json(c.req)),{tenant:true});
+  route('DELETE','/v1/workflows/:id',async c=>e.workflows.remove(c.principal,c.tenant,c.params.id),{tenant:true});
+  route('GET','/v1/workflows/:id/versions',async c=>e.workflows.versions(c.principal,c.tenant,c.params.id),{tenant:true});
+  route('POST','/v1/workflows/:id/runs',async c=>e.workflows.run(c.principal,c.tenant,c.params.id,await json(c.req)),{tenant:true,status:201});
+
   // ---------------- domain workspaces ----------------
   route('GET','/v1/workspaces',async()=>({items:listWorkspaces()}),{public:true});
   route('POST','/v1/projects/:pid/operations/:op',async c=>{

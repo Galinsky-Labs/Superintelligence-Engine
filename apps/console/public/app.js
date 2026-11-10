@@ -132,6 +132,14 @@ async function artifactsTab(p){
         h('button',{onclick:guard(async()=>{let body;if(isText)body={text:editor.value,mediaType:a.mediaType};else body={body:JSON.parse(editor.value),mediaType:'application/json'};
           await api('PUT',`/v1/projects/${p.id}/artifacts/${aid}`,{...body,title:title.value,expectedRevision:a.currentRevision});toast('Saved new revision');open(aid);})},'Save revision'),
         rev&&rev!==a.currentRevision?h('button',{class:'secondary',onclick:guard(async()=>{await api('POST',`/v1/projects/${p.id}/artifacts/${aid}/restore`,{revision:rev});toast('Restored');open(aid);})},`Restore revision ${rev}`):null));
+      if(isText){
+        const ask=h('input',{placeholder:'e.g. tighten the second paragraph, make the tone formal','aria-label':'AI revision instructions'});
+        const reviseModel=h('select',{'aria-label':'Revision model'},...modelOptions('chat'));
+        content.append(h('div',{class:'row card'},h('strong',{},'AI revise'),ask,reviseModel,h('button',{class:'secondary',onclick:guard(async()=>{
+          if(!ask.value.trim())return toast('Describe the revision first');
+          const run=await api('POST',`/v1/projects/${p.id}/operations/writing.revise`,{input:{artifactId:aid,instructions:ask.value},model:parseModel(reviseModel.value)});
+          toast('Revision running — the result is saved as a new revision');location.hash=`#/runs/${run.id}`;})},'Revise with AI')));
+      }
     }
     rc(detail,
       h('div',{class:'row'},h('h3',{style:'margin:0'},a.title),h('span',{class:'muted small'},`${a.mediaType} · revision ${a.revision} of ${a.currentRevision}`),h('span',{class:'spacer'}),
@@ -192,17 +200,30 @@ const EXAMPLES={
   'Draft → human approval → publish':{title:'Approval gate',nodes:[{key:'draft',type:'agent',instructions:'Draft an announcement'},{key:'review',type:'approval',dependsOn:['draft'],effect:'publish',summary:'Approve publishing the announcement?'},{key:'final',type:'agent',dependsOn:['review'],instructions:'Polish the approved announcement'}]},
 };
 async function workflowTab(p){
-  const editor=h('textarea',{style:'min-height:360px','aria-label':'Workflow JSON'});editor.value=JSON.stringify(Object.values(EXAMPLES)[0],null,2);
+  const editor=h('textarea',{style:'min-height:360px','aria-label':'Workflow JSON'});editor.value=sessionStorage.getItem('sie_wf_draft_'+p.id)||JSON.stringify(Object.values(EXAMPLES)[0],null,2);
+  editor.addEventListener('input',()=>sessionStorage.setItem('sie_wf_draft_'+p.id,editor.value));
   const model=h('select',{'aria-label':'Default model'},...modelOptions('chat'));
   const ceiling=h('input',{type:'number',placeholder:'Run budget ceiling (USD, optional)',step:'0.01',min:'0'});
+  const saved=(await api('GET',`/v1/projects/${p.id}/workflows`)).items;let loaded=null;
+  const wfTitle=h('input',{placeholder:'Saved workflow title','aria-label':'Saved workflow title'});
+  const prepare=()=>{const spec=JSON.parse(editor.value);const m=parseModel(model.value);
+    if(m)for(const n of spec.nodes)if(['agent','planner'].includes(n.type)&&!n.model){n.model=m;if(n.type==='planner'){n.worker={...(n.worker||{}),model:n.worker?.model||m};}}
+    if(ceiling.value)spec.budgetCeilingMicro=Math.round(Number(ceiling.value)*1e6);return spec;};
+  const savedList=h('table',{},h('tr',{},['Saved workflow','Version','Updated',''].map(x=>h('th',{},x))),saved.map(w=>h('tr',{},h('td',{},w.title),h('td',{},'v'+w.version),h('td',{},when(w.updatedAt)),
+    h('td',{},h('div',{class:'row'},h('button',{class:'secondary small',onclick:()=>{loaded=w;editor.value=JSON.stringify(w.spec,null,2);sessionStorage.setItem('sie_wf_draft_'+p.id,editor.value);wfTitle.value=w.title;toast(`Loaded ${w.title} v${w.version}`);}},'Load'),
+      h('button',{class:'small',onclick:guard(async()=>{const r=await api('POST',`/v1/workflows/${w.id}/runs`,{});location.hash=`#/runs/${r.id}`;})},'Run'),
+      h('button',{class:'danger small',onclick:guard(async()=>{await api('DELETE',`/v1/workflows/${w.id}`);route();})},'Delete'))))));
   return h('div',{class:'stack card'},
-    h('div',{class:'row'},h('span',{class:'muted'},'Templates:'),Object.entries(EXAMPLES).map(([k,v])=>h('button',{class:'secondary small',onclick:()=>{editor.value=JSON.stringify(v,null,2);}},k))),
+    saved.length?h('div',{class:'stack'},h('h3',{style:'margin:0'},'Saved workflows'),savedList):null,
+    h('div',{class:'row'},h('span',{class:'muted'},'Templates:'),Object.entries(EXAMPLES).map(([k,v])=>h('button',{class:'secondary small',onclick:()=>{editor.value=JSON.stringify(v,null,2);sessionStorage.setItem('sie_wf_draft_'+p.id,editor.value);}},k))),
     h('p',{class:'muted small'},'Node types: agent, planner, tool, approval, code, media, external_agent. Use dependsOn for ordering, when for conditions, {{nodes.key.text}} / {{inputs.x}} templates to pass outputs.'),
     editor,h('div',{class:'row'},h('label',{},'Default model for agents',model),h('label',{},'Budget ceiling',ceiling)),
-    h('button',{onclick:guard(async()=>{const spec=JSON.parse(editor.value);const m=parseModel(model.value);
-      if(m)for(const n of spec.nodes)if(['agent','planner'].includes(n.type)&&!n.model){n.model=m;if(n.type==='planner'){n.worker={...(n.worker||{}),model:n.worker?.model||m};}}
-      if(ceiling.value)spec.budgetCeilingMicro=Math.round(Number(ceiling.value)*1e6);
-      const run=await api('POST',`/v1/projects/${p.id}/runs`,{spec});location.hash=`#/runs/${run.id}`;})},'Start workflow'));
+    h('button',{onclick:guard(async()=>{const spec=prepare();
+      const run=await api('POST',`/v1/projects/${p.id}/runs`,{spec});location.hash=`#/runs/${run.id}`;})},'Start workflow'),
+    h('div',{class:'row'},wfTitle,h('button',{class:'secondary',onclick:guard(async()=>{const spec=prepare();
+      if(loaded&&loaded.title===wfTitle.value){await api('PUT',`/v1/workflows/${loaded.id}`,{spec,expectedVersion:loaded.version});toast('Saved new version');}
+      else{await api('POST',`/v1/projects/${p.id}/workflows`,{title:wfTitle.value||spec.title||'Workflow',spec});toast('Workflow saved');}
+      sessionStorage.setItem('sie_wf_draft_'+p.id,editor.value);route();})},'Save workflow')));
 }
 async function codeTab(p){
   const files=(await api('GET',`/v1/projects/${p.id}/files`)).items;

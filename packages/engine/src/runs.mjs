@@ -78,7 +78,7 @@ export function validateSpec(spec,{maxNodes=MAX_NODES}={}){
 export function canonical(v){if(Array.isArray(v))return '['+v.map(canonical).join(',')+']';if(isObject(v))return '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}';return JSON.stringify(v);}
 const lockRun=(db,runId)=>db.query('SELECT id FROM runs WHERE id=$1 FOR UPDATE',[runId]);
 function serializeRun(r){return {id:r.id,projectId:r.project_id,kind:r.kind,title:r.title,status:r.status,budgetCeilingMicro:Number(r.budget_ceiling_micro),spentMicro:Number(r.spent_micro),
-  output:r.output,error:r.error,createdBy:r.created_by,scheduleId:r.schedule_id,createdAt:r.created_at,startedAt:r.started_at,finishedAt:r.finished_at,updatedAt:r.updated_at}}
+  output:r.output,error:r.error,createdBy:r.created_by,scheduleId:r.schedule_id,workflowId:r.workflow_id||null,workflowVersion:r.workflow_version??null,createdAt:r.created_at,startedAt:r.started_at,finishedAt:r.finished_at,updatedAt:r.updated_at}}
 function serializeNode(n){return {key:n.node_key,type:n.type,state:n.state,dependsOn:n.depends_on,parent:n.parent_key,attempt:n.attempt,maxAttempts:n.max_attempts,
   output:n.output,artifactId:n.artifact_id,error:n.error,costMicro:Number(n.cost_micro),startedAt:n.started_at,finishedAt:n.finished_at,config:n.config}}
 

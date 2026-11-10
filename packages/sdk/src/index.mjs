@@ -103,6 +103,11 @@ export class EngineClient {
     while(Date.now()<end){const r=await this.run(id);if(['succeeded','failed','cancelled','awaiting_approval'].includes(r.status))return r;if(signal?.aborted)throw new Error('aborted');await new Promise(x=>setTimeout(x,1000));}
     throw new Error('timeout waiting for run');
   }
+  workflows(projectId){return this.request('GET',`/v1/projects/${enc(projectId)}/workflows`)}
+  saveWorkflow(projectId,{title,description,spec}){return this.request('POST',`/v1/projects/${enc(projectId)}/workflows`,{title,description,spec})}
+  updateWorkflow(id,{title,description,spec,expectedVersion}){return this.request('PUT',`/v1/workflows/${enc(id)}`,{title,description,spec,expectedVersion})}
+  workflowVersions(id){return this.request('GET',`/v1/workflows/${enc(id)}/versions`)}
+  runWorkflow(id,{inputs,version,budgetCeilingMicro,idempotencyKey}={}){return this.request('POST',`/v1/workflows/${enc(id)}/runs`,{inputs,version,budgetCeilingMicro,idempotencyKey})}
   approvals({status='pending'}={}){return this.request('GET',`/v1/approvals?status=${enc(status)}`)}
   decide(approvalId,decision,note){return this.request('POST',`/v1/approvals/${enc(approvalId)}`,{decision,note})}
   // ---- code workspace ----
@@ -122,6 +127,6 @@ export class EngineClient {
   connections(){return this.request('GET','/v1/connections')}
   addConnection({kind,name,endpoint,secret,tools}){return this.request('POST','/v1/connections',{kind,name,endpoint,secret,tools})}
   schedules({projectId}={}){return this.request('GET','/v1/schedules'+(projectId?`?projectId=${enc(projectId)}`:''))}
-  createSchedule(projectId,{title,cron,timezone,spec,condition}){return this.request('POST',`/v1/projects/${enc(projectId)}/schedules`,{title,cron,timezone,spec,condition})}
+  createSchedule(projectId,{title,cron,timezone,spec,condition,workflowId}){return this.request('POST',`/v1/projects/${enc(projectId)}/schedules`,{title,cron,timezone,spec,condition,workflowId})}
   updateSchedule(id,patch){return this.request('PATCH',`/v1/schedules/${enc(id)}`,patch)}
 }

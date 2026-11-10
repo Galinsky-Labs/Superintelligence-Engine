@@ -88,7 +88,17 @@ export class Executor {
   async callModel(ctx,{model,system,messages,tools=[],outputSchema,maxOutputTokens,stream=true}){
     const {run,node}=ctx;
     const adapter=await this.catalog.adapter(run.tenant_id,model.provider);
-    const est=Math.ceil(JSON.stringify({system,messages,tools:tools.map(t=>({n:t.name,d:t.description,s:t.inputSchema}))}).length/3)+200;
+    // Image parts are stored as asset references; load the bytes only for the provider call.
+    let imageCount=0;
+    messages=await Promise.all(messages.map(async m=>{
+      if(m.role!=='user'||typeof m.content==='string')return m;
+      return {...m,content:await Promise.all(m.content.map(async p=>{
+        if(p.type!=='image')return p;imageCount++;
+        const a=await this.assets.read({tenantId:run.tenant_id,assetId:p.assetId});
+        return {type:'image',mediaType:a.mediaType,data:a.bytes.toString('base64')};
+      }))};
+    }));
+    const est=Math.ceil(JSON.stringify({system,messages:messages.map(m=>({...m,content:typeof m.content==='string'?m.content:m.content.map(p=>p.type==='image'?'':p.text)})),tools:tools.map(t=>({n:t.name,d:t.description,s:t.inputSchema}))}).length/3)+200+imageCount*2000;
     const maxOut=Math.min(maxOutputTokens||4096,model.maxOutput||128000);
     const ceiling=textCost(model.price,est,maxOut);
     const reservation=await this.meter.reserve({tenantId:run.tenant_id,runId:run.id,key:`${node.node_key}:${randomUUID().slice(0,12)}`,micro:ceiling});
@@ -165,7 +175,9 @@ export class Executor {
   async agent(ctx,{forcedSchema,systemExtra}={}){
     const {node,run}=ctx;const c=renderTemplate(node.config,ctx.tpl);
     check(typeof c.instructions==='string'&&c.instructions.trim(),'invalid_agent',400,'Agent nodes need instructions');
+    const images=await this.collectImages(ctx,c);
     const model=await this.catalog.resolve(run.tenant_id,{...(c.model||{}),capability:'chat'});
+    check(!images.length||model.capabilities.includes('vision')||model.simulated,'capability_unsupported',400,`${model.model} cannot read images`);
     const outputSchema=forcedSchema||(c.outputSchema?assertSchemaShape(c.outputSchema):undefined);
     const tools=await buildTools({services:this.services(),tenantId:run.tenant_id,projectId:run.project_id,identityId:run.created_by,runId:run.id,nodeKey:node.node_key},c.tools||[]);
     const maxSteps=Math.min(Math.max(1,c.maxSteps||8),50);
@@ -178,7 +190,8 @@ export class Executor {
     if(!cp){
       const up=c.includeInputs===false?'':this.upstreamContext(ctx);
       const inputs=Object.keys(ctx.tpl.inputs).length&&c.includeInputs!==false?`\n\n## Workflow inputs\n${clip(JSON.stringify(ctx.tpl.inputs,null,2),8000)}`:'';
-      cp={messages:[{role:'user',content:`## Your task\n${c.instructions}${inputs}${up?`\n\n## Results from earlier steps\n${up}`:''}`}],step:0,results:{},repairs:0};
+      const text=`## Your task\n${c.instructions}${inputs}${up?`\n\n## Results from earlier steps\n${up}`:''}${images.length?`\n\n## Attached images\n${images.map((i,n)=>`Image ${n+1}: ${i.title}`).join('\n')}`:''}`;
+      cp={messages:[{role:'user',content:images.length?[{type:'text',text},...images.map(i=>({type:'image',assetId:i.assetId}))]:text}],step:0,results:{},repairs:0};
     }
     const totals={inputTokens:0,outputTokens:0,calls:0,toolCalls:0};
     let final=null,lastServed=model.model;
@@ -230,6 +243,21 @@ export class Executor {
       artifactId=a.id;
     }
     return {output,artifactId};
+  }
+
+  /** Image artifacts given explicitly (inputArtifacts) or produced by upstream media steps. */
+  async collectImages(ctx,c){
+    const {run}=ctx;const ids=[...(Array.isArray(c.inputArtifacts)?c.inputArtifacts:[])];
+    if(c.includeInputs!==false&&c.upstreamImages!==false)for(const u of ctx.upstream)if(u.artifactId&&u.output?.mediaType?.startsWith('image/'))ids.push(u.artifactId);
+    const out=[];
+    for(const id of [...new Set(ids)].slice(0,8)){
+      const a=await this.projects.systemReadArtifact({tenantId:run.tenant_id,projectId:run.project_id,artifactId:id});
+      if(!a.assetId||!/^image\/(png|jpeg|gif|webp)$/.test(a.mediaType))continue;
+      const meta=await this.assets.meta({tenantId:run.tenant_id,assetId:a.assetId});
+      check(meta.sizeBytes<=5*1024*1024,'image_too_large',413,`Image ${a.title} exceeds 5MB`);
+      out.push({assetId:a.assetId,title:a.title});
+    }
+    return out;
   }
 
   // ---------- planner: delegates subtasks to new agent nodes ----------

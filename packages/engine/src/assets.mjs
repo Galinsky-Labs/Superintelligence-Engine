@@ -1,6 +1,6 @@
 // Private binary asset storage: content-addressed local files (or a mounted volume),
 // verified by content sniffing and, when configured, a ClamAV scan before use.
-import {mkdir,readFile,writeFile,rename,stat} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,rename,stat,readdir,unlink} from 'node:fs/promises';
 import {join,dirname} from 'node:path';
 import {Readable} from 'node:stream';
 import {fileTypeFromBuffer} from 'file-type';
@@ -34,6 +34,11 @@ class FileBlobs {
   path(hash){return join(this.dir,hash.slice(0,2),hash.slice(2,4),hash);}
   async put(hash,bytes){const p=this.path(hash);await mkdir(dirname(p),{recursive:true});try{await stat(p)}catch{const tmp=p+'.'+process.pid+'.'+Date.now()+'.tmp';await writeFile(tmp,bytes);await rename(tmp,p);}return 'local:'+hash;}
   async get(hash){return readFile(this.path(hash));}
+  async *list(){
+    let a;try{a=await readdir(this.dir)}catch{return}
+    for(const x of a)for(const y of await readdir(join(this.dir,x)).catch(()=>[]))for(const f of await readdir(join(this.dir,x,y)).catch(()=>[]))if(/^[a-f0-9]{64}$/.test(f))yield f;
+  }
+  async remove(hash){await unlink(this.path(hash)).catch(()=>{});}
 }
 /** S3-compatible object storage backend (AWS S3, R2, MinIO, ...). Objects are private; access is via the API only. */
 class S3Blobs {
@@ -75,6 +80,17 @@ export class AssetStore {
     const bytes=await this.blobs.get(a.sha256);
     check(sha256(bytes)===a.sha256,'asset_integrity_failure',500);
     return {bytes,mediaType:a.media_type,sha256:a.sha256,sizeBytes:Number(a.size_bytes)};
+  }
+  /** Delete stored blobs no asset row references (projects deleted, imports replaced). Local backend only. */
+  async gc({minAgeMs=3600000}={}){
+    if(!this.blobs.list)return {removed:0};
+    let removed=0;
+    for await(const hash of this.blobs.list()){
+      const st=await stat(this.blobs.path(hash)).catch(()=>null);if(!st||Date.now()-st.mtimeMs<minAgeMs)continue;
+      const used=(await this.db.query('SELECT 1 FROM asset_metadata WHERE sha256=$1 LIMIT 1',[hash])).rowCount;
+      if(!used){await this.blobs.remove(hash);removed++;}
+    }
+    return {removed};
   }
   async meta({tenantId,assetId}){
     const r=await this.db.query("SELECT id,project_id,media_type,sha256,size_bytes,created_at FROM asset_metadata WHERE tenant_id=$1 AND id=$2 AND scan_state='clean'",[tenantId,assetId]);

@@ -12,6 +12,7 @@ import {Sandbox} from './sandbox.mjs';
 import {Workspace} from './workspace.mjs';
 import {Connections} from './connections.mjs';
 import {Scheduler} from './scheduler.mjs';
+import {WorkflowLibrary} from './workflows.mjs';
 import {egressPolicy} from './net.mjs';
 import {brokerFromEnvironment} from '../../auth/src/index.mjs';
 
@@ -37,8 +38,9 @@ export function createEngine({env=process.env,pools,adapterOverrides,sandbox,fet
   const connections=new Connections({system:p.system,secretBox:box,policy:egress,fetchImpl});
   const executor=new Executor({system:p.system,runs,catalog,meter,projects,assets,sandbox:sbx,workspace,connections,egress});
   const scheduler=new Scheduler({system:p.system,runs,projects});
+  const workflows=new WorkflowLibrary({system:p.system,runs});
   const identity=new IdentityService({system:p.system,oidcBroker:brokerFromEnvironment(env),devAuth});
-  return {env,pools:p,box,production,devAuth,identity,catalog,meter,assets,projects,runs,executor,sandbox:sbx,workspace,connections,scheduler,
+  return {env,pools:p,box,production,devAuth,identity,catalog,meter,assets,projects,runs,executor,sandbox:sbx,workspace,connections,scheduler,workflows,
     async close(){await p.end();}};
 }
 
@@ -51,6 +53,7 @@ export class Worker {
     if(Date.now()-this.lastMaintenance<5000)return;this.lastMaintenance=Date.now();
     try{await this.e.runs.recoverExpired();}catch(e){log.error('recovery_failed',{message:e.message});}
     try{await this.e.scheduler.tick();}catch(e){log.error('scheduler_failed',{message:e.message});}
+    if(Date.now()-(this.lastGc||0)>15*60000){this.lastGc=Date.now();this.e.assets.gc().then(r=>r.removed&&log.info('asset_gc',r)).catch(e=>log.warn('asset_gc_failed',{message:e.message}));}
   }
   async tick(){
     await this.maintenance();

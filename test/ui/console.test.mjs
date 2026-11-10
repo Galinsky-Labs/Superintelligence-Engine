@@ -38,6 +38,11 @@ test('console end-to-end in a browser',{skip:skip||(!chromium&&'playwright not i
     await page.getByRole('button',{name:'Save revision'}).click();
     await page.waitForSelector('text=revision 2 of 2');
     assert.equal(await page.locator('table tr').count(),3,'two history rows + header');
+    await page.fill('input[aria-label="AI revision instructions"]','Make it formal');
+    await page.selectOption('select[aria-label="Revision model"]','deterministic|sim-text');
+    await page.getByRole('button',{name:'Revise with AI'}).click();
+    await page.waitForURL(/#\/runs\//);await page.waitForSelector('.row .state.succeeded',{timeout:60000});
+    await page.goBack();
     await shot('02-artifact');
     // domain workspace operation -> run monitor
     await page.getByRole('tab',{name:'Domain workspaces'}).click();
@@ -54,6 +59,10 @@ test('console end-to-end in a browser',{skip:skip||(!chromium&&'playwright not i
     await page.getByRole('tab',{name:'Multi-agent workflow'}).click();
     await page.getByRole('button',{name:'Draft → human approval → publish'}).click();
     await page.selectOption('select[aria-label="Default model"]','deterministic|sim-text');
+    await page.fill('input[aria-label="Saved workflow title"]','Announcement pipeline');
+    await page.getByRole('button',{name:'Save workflow'}).click();
+    await page.waitForSelector('text=Saved workflows');
+    assert.equal(await page.locator('td',{hasText:'Announcement pipeline'}).count(),1);
     await page.getByRole('button',{name:'Start workflow'}).click();
     await page.waitForSelector('text=Approval needed',{timeout:60000});
     await shot('04-approval');

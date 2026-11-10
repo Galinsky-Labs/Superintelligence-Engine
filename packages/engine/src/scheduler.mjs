@@ -38,15 +38,16 @@ export function nextRun(expr,tz='UTC',after=new Date()){
 
 export class Scheduler {
   constructor({system,runs,projects}){this.db=system;this.runs=runs;this.projects=projects;}
-  serialize(s){return {id:s.id,projectId:s.project_id,title:s.title,cron:s.cron,timezone:s.timezone,spec:s.spec,condition:s.condition,enabled:s.enabled,nextRunAt:s.next_run_at,lastRunAt:s.last_run_at,lastRunId:s.last_run_id,createdAt:s.created_at}}
-  async create(principal,tenantId,projectId,{title,cron,timezone='UTC',spec,condition=null}){
+  serialize(s){return {id:s.id,projectId:s.project_id,workflowId:s.workflow_id||null,title:s.title,cron:s.cron,timezone:s.timezone,spec:s.spec,condition:s.condition,enabled:s.enabled,nextRunAt:s.next_run_at,lastRunAt:s.last_run_at,lastRunId:s.last_run_id,createdAt:s.created_at}}
+  async create(principal,tenantId,projectId,{title,cron,timezone='UTC',spec,condition=null,workflowId=null}){
     requireUUID(projectId,'project');await requireMembership(this.db,principal,tenantId,'member');
     check(typeof title==='string'&&title.trim()&&title.length<=160,'invalid_title');
+    if(workflowId){requireUUID(workflowId,'workflow');const w=(await this.db.query('SELECT spec FROM workflows WHERE tenant_id=$1 AND project_id=$2 AND id=$3',[tenantId,projectId,workflowId])).rows[0];check(w,'workflow_not_found',404);spec=spec||w.spec;}
     validateSpec(spec);if(condition!==null)check(isObject(condition),'invalid_condition');
     const next=nextRun(cron,timezone);
     check((await this.db.query('SELECT 1 FROM projects WHERE tenant_id=$1 AND id=$2',[tenantId,projectId])).rowCount,'project_not_found',404);
-    const r=await this.db.query('INSERT INTO schedules(tenant_id,project_id,created_by,title,cron,timezone,spec,condition,next_run_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
-      [tenantId,projectId,principal.identityId,title.trim(),cron,timezone,JSON.stringify(spec),condition?JSON.stringify(condition):null,next]);
+    const r=await this.db.query('INSERT INTO schedules(tenant_id,project_id,created_by,title,cron,timezone,spec,condition,next_run_at,workflow_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
+      [tenantId,projectId,principal.identityId,title.trim(),cron,timezone,JSON.stringify(spec),condition?JSON.stringify(condition):null,next,workflowId]);
     return this.serialize(r.rows[0]);
   }
   async list(principal,tenantId,{projectId}={}){
@@ -90,7 +91,8 @@ export class Scheduler {
       try{
         const cond=await this.conditionMet(s);
         if(cond.ok){
-          const spec={...s.spec,inputs:{...(s.spec.inputs||{}),scheduledAt:new Date().toISOString()}};
+          const base=s.workflow_id?(await this.db.query('SELECT spec FROM workflows WHERE id=$1',[s.workflow_id])).rows[0]?.spec||s.spec:s.spec; // saved workflows run their latest version
+          const spec={...base,inputs:{...(s.spec.inputs||{}),...(base.inputs||{}),scheduledAt:new Date().toISOString()}};
           const run=await this.runs.createRun({identityId:s.created_by},s.tenant_id,s.project_id,{kind:'schedule',spec,title:s.title,scheduleId:s.id,idempotencyKey:`sched:${s.id}:${new Date(s.due_at).getTime()}`});
           const newSpec=cond.revision!==undefined?{...s.spec,inputs:{...(s.spec.inputs||{}),__lastRevision:cond.revision}}:s.spec;
           await this.db.query('UPDATE schedules SET next_run_at=$2,last_run_at=now(),last_run_id=$3,spec=$4 WHERE id=$1',[s.id,next,run.id,JSON.stringify(newSpec)]);fired++;
