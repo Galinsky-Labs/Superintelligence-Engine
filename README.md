@@ -48,8 +48,11 @@ Docker alternative (PostgreSQL + API + separate worker): `cp .env.example .env`,
 | Tools: project artifacts, workspace files, sandboxed code, calculator, web fetch (egress-guarded), HTTP requests, Git commit/push, MCP servers, A2A external agents. Effects `external/deploy/financial/publish/delete` always pause for an admin approval bound to the exact request; all calls audited | `tools.mjs`, `connections.mjs`, `net.mjs` |
 | Domain workspaces: research (brief, deep multi-agent), writing (poem, persuasive, fiction, revise), legislation (draft, analyze), code (build, review), data analysis, image, music, video, voice (speak, transcribe), cross-media campaign | `domains.mjs` |
 | Code workspace: persistent files with history, isolated execution and tests, diagnostics, Git log/diff/checkout, signed sandboxed previews | `workspace.mjs`, `sandbox.mjs` |
+| Saved, versioned workflows (re-run with new inputs, run an old version, schedule the latest) | `workflows.mjs` |
 | Scheduled and conditional workflows (cron with time zones, run-on-artifact-change) | `scheduler.mjs` |
-| Operations: `/health`, `/ready`, Prometheus `/metrics`, structured JSON logs with request ids, error webhook, graceful shutdown | `apps/api/src/server.mjs`, `infra.mjs` |
+| Vision: image artifacts (uploaded or generated upstream) attached to agents on vision-capable models | `executor.mjs` |
+| Operations: `/health`, `/ready`, Prometheus `/metrics`, OpenTelemetry traces (OTLP/HTTP; one trace per run with node and `gen_ai` model-call spans), structured JSON logs with request ids, error webhook, graceful shutdown, asset garbage collection | `apps/api/src/server.mjs`, `infra.mjs`, `tracing.mjs` |
+| Storage: local volume or S3-compatible bucket for assets; export as re-importable JSON or ZIP | `assets.mjs`, `zip.mjs` |
 | Console UI for all of the above | `apps/console/public` |
 | Client SDK for Academy / Command Center | `packages/sdk` |
 

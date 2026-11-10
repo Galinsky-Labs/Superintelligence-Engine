@@ -13,6 +13,7 @@ import {Workspace} from './workspace.mjs';
 import {Connections} from './connections.mjs';
 import {Scheduler} from './scheduler.mjs';
 import {WorkflowLibrary} from './workflows.mjs';
+import {tracer} from './tracing.mjs';
 import {egressPolicy} from './net.mjs';
 import {brokerFromEnvironment} from '../../auth/src/index.mjs';
 
@@ -23,6 +24,7 @@ export {PROVIDERS} from './providers.mjs';
 
 export function createEngine({env=process.env,pools,adapterOverrides,sandbox,fetchImpl}={}){
   installErrorReporter(env.SIE_ERROR_WEBHOOK_URL);
+  if(env.OTEL_EXPORTER_OTLP_ENDPOINT)tracer.configure({endpoint:env.OTEL_EXPORTER_OTLP_ENDPOINT,headers:env.OTEL_EXPORTER_OTLP_HEADERS,service:env.OTEL_SERVICE_NAME});
   const p=pools||createPools({databaseUrl:env.DATABASE_URL,appDatabaseUrl:env.APP_DATABASE_URL});
   const box=env.SIE_ENCRYPTION_KEY?new SecretBox(env.SIE_ENCRYPTION_KEY):null;
   const production=env.NODE_ENV==='production';

@@ -11,6 +11,7 @@ import {handleProductCors,normalizeProductOrigins,isAllowedBrowserOrigin} from '
 import {authRoute} from './auth-routes.mjs';
 import {safeRelPath} from '../../../packages/engine/src/sandbox.mjs';
 import {zip} from '../../../packages/engine/src/zip.mjs';
+import {tracer,Tracer} from '../../../packages/engine/src/tracing.mjs';
 
 const CONSOLE_DIR=fileURLToPath(new URL('../../console/public/',import.meta.url));
 const VERSION='0.2.0';
@@ -324,7 +325,10 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
     const started=process.hrtime.bigint();const reqId=randomUUID();res.setHeader('X-Request-Id',reqId);
     const url=new URL(req.url||'/','http://localhost');const path=url.pathname;
     let matchedRoute='unmatched';
-    res.on('finish',()=>{const ms=Number(process.hrtime.bigint()-started)/1e6;metrics.inc('sie_http_requests_total',{route:matchedRoute,status:String(res.statusCode)});metrics.observe('sie_http_request_seconds',{route:matchedRoute},ms/1000);
+    const parent=Tracer.parseTraceparent(req.headers.traceparent);
+    const span=tracer.start(`${req.method} http`,{traceId:parent?.traceId,parentSpanId:parent?.spanId,kind:2,attributes:{'http.request.method':req.method,'url.path':path.slice(0,200)}});
+    if(tracer.enabled)res.setHeader('traceparent',span.traceparent);
+    res.on('finish',()=>{span.set('http.route',matchedRoute).set('http.response.status_code',res.statusCode);if(res.statusCode>=500)span.error('HTTP '+res.statusCode);span.end();const ms=Number(process.hrtime.bigint()-started)/1e6;metrics.inc('sie_http_requests_total',{route:matchedRoute,status:String(res.statusCode)});metrics.observe('sie_http_request_seconds',{route:matchedRoute},ms/1000);
       if(path!=='/health')log.info('http_request',{reqId,method:req.method,path:matchedRoute,status:res.statusCode,ms:Math.round(ms)});});
     try{
       if(handleProductCors(req,res,path,{origins,selfOrigin}))return;
@@ -366,7 +370,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
       send(res,500,{code:'server_error',message:'Unexpected server error',requestId:reqId});
     }
   }
-  return {handler,engine:e,worker,hub,routes,async close(){worker?.stop();await hub.stop();await e.close();}};
+  return {handler,engine:e,worker,hub,routes,async close(){worker?.stop();await hub.stop();await tracer.flush();await e.close();}};
 }
 
 export function makeServer(options={}){

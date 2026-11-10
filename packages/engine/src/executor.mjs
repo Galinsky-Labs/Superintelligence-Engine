@@ -8,6 +8,7 @@ import {textCost,unitCost} from './catalog.mjs';
 import {parseJSONSafe,validate,assertSchemaShape} from './schema.mjs';
 import {getPath} from './runs.mjs';
 import {buildTools,prepareInvocation,audit} from './tools.mjs';
+import {tracer,runTraceId} from './tracing.mjs';
 
 const NO_CHARGE=new Set(['provider_auth_failed','provider_rejected','provider_transport','provider_rate_limited','provider_unconfigured','invalid_model','usage_missing_before_output']);
 const clip=(s,n)=>{s=String(s??'');return s.length>n?s.slice(0,n)+`\n…[truncated ${s.length-n} chars]`:s;};
@@ -43,7 +44,8 @@ export class Executor {
       try{const s=await this.runs.heartbeat(node,leaseSeconds);if(s!=='ok')ac.abort(new Error(s));}catch(e){log.warn('heartbeat_failed',{message:e.message});}
     },heartbeatMs);hb.unref?.();
     const started=Date.now();
-    const ctx={node,run,signal:ac.signal,onDelta,deltaBuf:'',flushTimer:null,costMicro:0};
+    const span=tracer.start(`node ${node.type}`,{traceId:runTraceId(run.id),attributes:{'sie.run_id':run.id,'sie.node':node.node_key,'sie.node_type':node.type,'sie.tenant_id':run.tenant_id,'sie.attempt':node.attempt}});
+    const ctx={node,run,signal:ac.signal,onDelta,deltaBuf:'',flushTimer:null,costMicro:0,span};
     try{
       await requireMembership(this.system,{identityId:run.created_by},run.tenant_id,'member').catch(()=>fail('creator_access_revoked',403,'The run creator no longer has write access to this tenant'));
       const outs=await this.runs.outputs(run.id);
@@ -52,9 +54,10 @@ export class Executor {
       const handler={agent:this.agent,planner:this.planner,tool:this.toolNode,approval:this.approvalNode,code:this.codeNode,media:this.mediaNode,external_agent:this.externalAgentNode}[node.type];
       const result=await handler.call(this,ctx);
       await this.flush(ctx,true);
-      if(result?.parked)return {status:'awaiting_approval'};
+      if(result?.parked){span.set('sie.outcome','awaiting_approval').end();return {status:'awaiting_approval'};}
       const ok=await this.runs.complete(node,{output:result.output,artifactId:result.artifactId||null,costMicro:ctx.costMicro,spawn:result.spawn});
       metrics.observe('sie_node_duration_seconds',{type:node.type},(Date.now()-started)/1000);
+      span.set('sie.cost_micro',ctx.costMicro).set('sie.outcome',ok?'succeeded':'discarded').end();
       return {status:ok?'succeeded':'discarded',output:result.output,artifactId:result.artifactId};
     }catch(error){
       await this.flush(ctx,true).catch(()=>{});
@@ -63,6 +66,7 @@ export class Executor {
       const msg=error instanceof EngineError?`${error.code}: ${error.message}`:`internal_error: ${error.message}`;
       if(!(error instanceof EngineError))log.error('node_internal_error',{runId:run.id,node:node.node_key,message:error.message,stack:error.stack?.split('\n').slice(0,4).join(' | ')});
       const status=await this.runs.failNode(node,{error:msg,retryable});
+      span.error(msg).set('sie.outcome',status).end();
       return {status,error:msg};
     }finally{clearInterval(hb);}
   }
@@ -104,6 +108,7 @@ export class Executor {
     const reservation=await this.meter.reserve({tenantId:run.tenant_id,runId:run.id,key:`${node.node_key}:${randomUUID().slice(0,12)}`,micro:ceiling});
     let text='',toolCalls=[],usage=null,done=null,emitted=false;
     const meta={tenantId:run.tenant_id,projectId:run.project_id,runId:run.id,nodeKey:node.node_key,identityId:run.created_by,provider:model.provider,model:model.model,operation:tools.length?'chat.tools':outputSchema?'chat.structured':'chat',simulated:Boolean(model.simulated)};
+    const pspan=tracer.start('chat '+model.model,{traceId:ctx.span?.traceId,parentSpanId:ctx.span?.spanId,kind:3,attributes:{'gen_ai.system':model.provider,'gen_ai.request.model':model.model,'gen_ai.operation.name':'chat'}});
     try{
       for await(const ev of adapter.chat({model:model.model,system,messages,tools:tools.map(t=>({name:t.name,description:t.description,inputSchema:t.inputSchema})),outputSchema,maxOutputTokens:maxOut,signal:ctx.signal})){
         if(ev.type==='text'){text+=ev.text;emitted=true;if(stream)this.delta(ctx,ev.text);}
@@ -119,9 +124,11 @@ export class Executor {
         await this.meter.settle(reservation,estimate,{...meta,inputTokens:est,outputTokens:Math.ceil(text.length/3),estimated:true}).catch(err=>log.error('settle_failed',{message:err.message}));
         ctx.costMicro+=estimate;
       }
+      pspan.error(e.code||e.message).end();
       throw e;
     }
     const cost=textCost(model.price,usage.inputTokens,usage.outputTokens);
+    pspan.set('gen_ai.usage.input_tokens',usage.inputTokens).set('gen_ai.usage.output_tokens',usage.outputTokens).set('gen_ai.response.model',done?.model).set('sie.cost_micro',cost).end();
     await this.meter.settle(reservation,cost,{...meta,inputTokens:usage.inputTokens,outputTokens:usage.outputTokens,providerResponseId:done?.responseId});
     ctx.costMicro+=cost;
     return {text,toolCalls,usage,costMicro:cost,responseId:done?.responseId,servedModel:done?.model,raw:done?.raw};
