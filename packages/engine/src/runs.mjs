@@ -176,6 +176,7 @@ export class RunStore {
         started_at=coalesce(n.started_at,now()),updated_at=now()
       WHERE n.id IN (SELECT c.id FROM run_nodes c JOIN runs r ON r.id=c.run_id
         WHERE c.state='ready' AND c.next_attempt_at<=now() AND r.status IN ('queued','running','awaiting_approval')
+          AND NOT (r.kind='generation' AND c.attempt=0 AND r.created_at>now()-interval '30 seconds') -- streaming generations are executed by the API request that created them; workers pick them up only if that request died
           AND ($4::int=0 OR (SELECT count(*) FROM run_nodes x WHERE x.tenant_id=c.tenant_id AND x.state='running')<$4)
         ORDER BY c.next_attempt_at,c.id FOR UPDATE OF c SKIP LOCKED LIMIT $2)
       RETURNING n.*`,[workerId,limit,leaseSeconds,tenantConcurrency]);

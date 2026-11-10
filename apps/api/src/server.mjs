@@ -201,6 +201,16 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
     if(claimed){
       const ka=stream?setInterval(()=>c.res.write(': keep-alive\n\n'),15000):null;
       try{result=await e.executor.execute({...claimed,onDelta:stream?t=>sse(c.res,'token',{text:t}):undefined});}finally{if(ka)clearInterval(ka);}
+    }else{
+      // Someone else is executing (or already executed) this run: relay its persisted deltas until it finishes.
+      let after=0;const end=Date.now()+15*60000;
+      while(Date.now()<end){
+        const evs=await e.runs.events(c.principal,c.tenant,run.id,{after});
+        for(const ev of evs){after=ev.id;if(stream&&ev.type==='node.delta')sse(c.res,'token',{text:ev.payload.text});}
+        if(evs.some(ev=>['run.succeeded','run.failed','run.cancelled'].includes(ev.type)))break;
+        if(c.res.destroyed)break;
+        await new Promise(r=>setTimeout(r,250));
+      }
     }
     const full=await e.runs.get(c.principal,c.tenant,run.id);
     const n=full.nodes[0];

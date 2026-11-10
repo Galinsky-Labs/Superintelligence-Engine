@@ -32,3 +32,18 @@ test('SDK end-to-end against the engine',{skip},async()=>{
     const bundle=await c.exportProject(p.id);const copy=await c.importProject(bundle);assert.equal(copy.artifactCount,arts.length);
   }finally{ac.abort();await loop;await app.stop();await db.drop();}
 });
+
+test('streaming generation is complete even when a worker races the API for the node',{skip},async()=>{
+  const db=await freshDatabase();const app=await startApp(db);
+  try{
+    const {token}=await new EngineClient({baseUrl:app.base}).devLogin('racer');
+    const me=new EngineClient({baseUrl:app.base,token});const c=me.forTenant((await me.tenants()).items[0].id);
+    const p=await c.createProject({title:'Race',kind:'writing'});
+    // Make the API lose the claim: a worker executes the node first (simulating a stolen claim).
+    const orig=app.engine.runs.claimNode.bind(app.engine.runs);
+    app.engine.runs.claimNode=async(runId,key,o)=>{await app.engine.pools.system.query("UPDATE runs SET created_at=now()-interval '1 minute' WHERE id=$1",[runId]);await app.worker.drain(runId);return orig(runId,key,o);};
+    let text='',result;
+    for await(const ev of await c.generateStream(p.id,{prompt:'race',model:{provider:'deterministic',model:'sim-text'}})){if(ev.event==='token')text+=ev.data.text;if(ev.event==='result')result=ev.data;}
+    assert.equal(result?.status,'succeeded');assert.equal(text,result.output.text,'tokens relayed from persisted events');
+  }finally{await app.stop();await db.drop();}
+});
