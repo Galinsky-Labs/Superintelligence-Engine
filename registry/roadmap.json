@@ -1,5 +1,5 @@
 {
-  "repository": "neophilism/Superintelligence-Engine",
+  "repository": "Galinsky-Labs/Superintelligence-Engine",
   "deprecated": true,
   "redirectTo": "registry/prs.json",
   "instructions": "Retired duplicate plan. The sole active PR registry is registry/prs.json; see registry/PR_FORMAT.md. Consumers read that path directly."
