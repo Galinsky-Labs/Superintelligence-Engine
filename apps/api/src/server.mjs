@@ -1,4 +1,5 @@
 // Superintelligence Engine HTTP API.
+import {STUDIO_KINDS,mediaTypeOf,kindOfMediaType,defaultDoc,assertStudio,mixPlan,sectionTimeline,toSRT,toWebVTT,cutList,variationSpec,attachVariations,stemSpec,notebookProgram,applyNotebookRun} from '../../../packages/engine/src/studio.mjs';
 import {createServer} from 'node:http';
 import {readFile,stat} from 'node:fs/promises';
 import {extname,join,normalize} from 'node:path';
@@ -22,6 +23,8 @@ async function audited(c,tenantId,action,target,result,detail=()=>({})){
   await c.engine.governance.record(tenantId,c.principal.identityId,action,target(result),detail(result)||{}).catch(err=>log.error('audit_write_failed',{action,message:err.message}));
   return result;
 }
+/** Validates studio documents saved through the generic artifact API. */
+function studioChecked(b){const kind=kindOfMediaType(b?.mediaType);if(kind)assertStudio(kind,b.body);return b;}
 const SECURITY_HEADERS={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY'};
 
 function send(res,status,data,headers={}){
@@ -195,9 +198,43 @@ ${row('Code sandbox',comp.sandbox.available?'available':'disabled')}${row('Versi
     c.res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Content-Disposition':`attachment; filename="project-${c.params.pid}.json"`,...SECURITY_HEADERS});c.res.end(JSON.stringify(x));
   },{tenant:true,raw:true});
   route('GET','/v1/projects/:pid/artifacts',async c=>e.projects.listArtifacts(c.principal,c.tenant,c.params.pid,{kind:c.query.get('kind')||undefined,q:c.query.get('q')||undefined}),{tenant:true});
-  route('POST','/v1/projects/:pid/artifacts',async c=>e.projects.createArtifact(c.principal,c.tenant,c.params.pid,await json(c.req)),{tenant:true,status:201});
+  route('POST','/v1/projects/:pid/artifacts',async c=>e.projects.createArtifact(c.principal,c.tenant,c.params.pid,studioChecked(await json(c.req))),{tenant:true,status:201});
   route('GET','/v1/projects/:pid/artifacts/:aid',async c=>e.projects.getArtifact(c.principal,c.tenant,c.params.pid,c.params.aid,{revision:c.query.get('revision')?Number(c.query.get('revision')):undefined}),{tenant:true});
-  route('PUT','/v1/projects/:pid/artifacts/:aid',async c=>e.projects.reviseArtifact(c.principal,c.tenant,c.params.pid,c.params.aid,await json(c.req)),{tenant:true});
+  route('PUT','/v1/projects/:pid/artifacts/:aid',async c=>e.projects.reviseArtifact(c.principal,c.tenant,c.params.pid,c.params.aid,studioChecked(await json(c.req))),{tenant:true});
+  // ---------------- studio documents (image board, multitrack, timeline, notebook) ----------------
+  const studioDoc=async(c)=>{const a=await e.projects.getArtifact(c.principal,c.tenant,c.params.pid,c.params.aid);const kind=kindOfMediaType(a.mediaType);check(kind,'not_a_studio_document',400);return {a,kind,doc:a.body};};
+  const saveStudio=(c,a,doc)=>e.projects.reviseArtifact(c.principal,c.tenant,c.params.pid,a.id,{body:doc,mediaType:a.mediaType,title:a.title,expectedRevision:a.currentRevision});
+  route('GET','/v1/studio/kinds',async()=>({items:STUDIO_KINDS.map(k=>({kind:k,mediaType:mediaTypeOf(k),template:defaultDoc(k)}))}),{public:true});
+  route('POST','/v1/projects/:pid/studio',async c=>{const b=await json(c.req);const kind=String(b.kind||'');check(STUDIO_KINDS.includes(kind),'unknown_studio_kind',400);
+    const doc=b.doc??defaultDoc(kind);assertStudio(kind,doc);
+    return e.projects.createArtifact(c.principal,c.tenant,c.params.pid,{title:String(b.title||kind).slice(0,200),kind:'studio-'+kind,body:doc,mediaType:mediaTypeOf(kind)});},{tenant:true,status:201});
+  route('GET','/v1/projects/:pid/studio/:aid/export',async c=>{const {kind,doc}=await studioDoc(c);const f=c.query.get('format')||'';
+    if(kind==='timeline'&&(f==='srt'||f==='vtt')){const text=f==='srt'?toSRT(doc):toWebVTT(doc);c.res.writeHead(200,{'Content-Type':f==='srt'?'application/x-subrip; charset=utf-8':'text/vtt; charset=utf-8','Cache-Control':'no-store',...SECURITY_HEADERS});c.res.end(text);return undefined;}
+    let out;
+    if(kind==='multitrack')out=f==='sections'?{sections:sectionTimeline(doc)}:mixPlan(doc);
+    else if(kind==='timeline')out=cutList(doc);
+    else fail('unsupported_export',400);
+    send(c.res,200,out);return undefined;},{tenant:true,raw:true});
+  route('POST','/v1/projects/:pid/studio/:aid/variations',async c=>{const {kind,doc}=await studioDoc(c);check(kind==='image-board','not_an_image_board',400);const b=await json(c.req);
+    const spec=variationSpec(doc,{itemId:b.itemId,prompt:b.prompt,count:b.count??2,mask:b.mask||null,size:b.size});if(b.budgetCeilingMicro)spec.budgetCeilingMicro=b.budgetCeilingMicro;
+    return e.runs.createRun(c.principal,c.tenant,c.params.pid,{kind:'operation',title:spec.title,spec,idempotencyKey:b.idempotencyKey||undefined});},{tenant:true,status:201});
+  route('POST','/v1/projects/:pid/studio/:aid/attach',async c=>{const {a,kind,doc}=await studioDoc(c);check(kind==='image-board','not_an_image_board',400);const b=await json(c.req);
+    const run=await e.runs.get(c.principal,c.tenant,String(b.runId||''));check(run.projectId===c.params.pid,'run_not_found',404);
+    const next=attachVariations(doc,run,{itemId:b.itemId||null,mask:b.mask||null});assertStudio(kind,next);return saveStudio(c,a,next);},{tenant:true});
+  route('POST','/v1/projects/:pid/studio/:aid/stems',async c=>{const {kind,doc}=await studioDoc(c);check(kind==='multitrack','not_a_multitrack',400);const b=await json(c.req);
+    const spec=stemSpec(doc,String(b.trackId||''),{prompt:b.prompt});if(b.budgetCeilingMicro)spec.budgetCeilingMicro=b.budgetCeilingMicro;
+    return e.runs.createRun(c.principal,c.tenant,c.params.pid,{kind:'operation',title:spec.title,spec,idempotencyKey:b.idempotencyKey||undefined});},{tenant:true,status:201});
+  route('POST','/v1/projects/:pid/studio/:aid/stems/attach',async c=>{const {a,kind,doc}=await studioDoc(c);check(kind==='multitrack','not_a_multitrack',400);const b=await json(c.req);
+    const run=await e.runs.get(c.principal,c.tenant,String(b.runId||''));check(run.projectId===c.params.pid,'run_not_found',404);
+    const node=(run.nodes||[]).find(n=>n.key==='stem'&&n.state==='succeeded'&&n.artifactId);check(node,'stem_not_ready',409);
+    const next={...doc,tracks:doc.tracks.map(t=>t.id===b.trackId?{...t,stemArtifactId:node.artifactId}:t)};assertStudio(kind,next);return saveStudio(c,a,next);},{tenant:true});
+  route('POST','/v1/projects/:pid/studio/:aid/run',async c=>{const {a,kind,doc}=await studioDoc(c);check(kind==='notebook','not_a_notebook',400);const b=await json(c.req);
+    check(e.sandbox.backend,'sandbox_unavailable',503,'Code execution is disabled on this deployment (SIE_SANDBOX)');
+    const prog=notebookProgram(doc,b.cellId||null);
+    const r=await e.workspace.userExec(c.principal,c.tenant,c.params.pid,{language:'python',code:prog.code,timeoutMs:Math.min(Number(b.timeoutMs)||60000,120000)});
+    const next=applyNotebookRun(doc,prog,r);assertStudio(kind,next);const saved=await saveStudio(c,a,next);
+    return {artifact:saved,exitCode:r.exitCode,timedOut:Boolean(r.timedOut),durationMs:r.durationMs,backend:r.backend};},{tenant:true});
+
   route('DELETE','/v1/projects/:pid/artifacts/:aid',async c=>e.projects.deleteArtifact(c.principal,c.tenant,c.params.pid,c.params.aid),{tenant:true});
   route('GET','/v1/projects/:pid/artifacts/:aid/revisions',async c=>e.projects.history(c.principal,c.tenant,c.params.pid,c.params.aid),{tenant:true});
   route('POST','/v1/projects/:pid/artifacts/:aid/restore',async c=>e.projects.restore(c.principal,c.tenant,c.params.pid,c.params.aid,await json(c.req)),{tenant:true,status:201});
@@ -369,7 +406,7 @@ ${row('Code sandbox',comp.sandbox.available?'available':'disabled')}${row('Versi
     try{
       const body=await readFile(file);
       res.writeHead(200,{'Content-Type':MIME[extname(file)]||'application/octet-stream','Cache-Control':'no-cache',...SECURITY_HEADERS,
-        'Content-Security-Policy':"default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'"});
+        'Content-Security-Policy':"default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data: https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net; worker-src blob:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'"});
       res.end(body);
     }catch{send(res,404,{code:'not_found'});}
   }

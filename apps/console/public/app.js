@@ -103,9 +103,9 @@ async function projectsPage(){
 }
 async function projectPage(id,tab='artifacts'){
   const p=await api('GET',`/v1/projects/${id}`);
-  const tabs=[['artifacts','Artifacts'],['generate','Generate'],['workspaces','Domain workspaces'],['workflow','Multi-agent workflow'],['code','Code'],['runs','Runs'],['settings','Settings']];
+  const tabs=[['artifacts','Artifacts'],['generate','Generate'],['workspaces','Domain workspaces'],['studio','Studio'],['workflow','Multi-agent workflow'],['code','Code'],['runs','Runs'],['settings','Settings']];
   const body=h('div',{});
-  const render={artifacts:artifactsTab,generate:generateTab,workspaces:workspacesTab,workflow:workflowTab,code:codeTab,runs:projectRunsTab,settings:settingsTab}[tab]||artifactsTab;
+  const render={artifacts:artifactsTab,generate:generateTab,workspaces:workspacesTab,studio:studioTab,workflow:workflowTab,code:codeTab,runs:projectRunsTab,settings:settingsTab}[tab]||artifactsTab;
   body.append(await render(p));
   return h('div',{},
     h('div',{class:'row'},h('h2',{style:'margin:0'},p.title),h('span',{class:'muted'},p.kind),h('span',{class:'spacer'}),
@@ -228,9 +228,9 @@ async function workflowTab(p){
 async function codeTab(p){
   const files=(await api('GET',`/v1/projects/${p.id}/files`)).items;
   let current=null;
-  const path=h('input',{placeholder:'path/to/file.py','aria-label':'File path'});const editor=h('textarea',{style:'min-height:300px','aria-label':'File content'});
+  const path=h('input',{placeholder:'path/to/file.py','aria-label':'File path'});const editor=codeEditor();
   const out=h('pre',{class:'output'});const preview=h('div',{});const gitlog=h('div',{class:'small'});
-  const openFile=guard(async fp=>{const f=await api('GET',`/v1/projects/${p.id}/files/${fp}`);current=f;path.value=f.path;editor.value=f.content;});
+  const openFile=guard(async fp=>{const f=await api('GET',`/v1/projects/${p.id}/files/${fp}`);current=f;path.value=f.path;editor.value=f.content;editor.setLanguage?.(f.path);});
   const cmd=h('input',{placeholder:'python3 main.py','aria-label':'Command'});
   const fileList=h('div',{class:'list'},files.map(f=>h('button',{onclick:()=>openFile(f.path)},f.path,h('span',{class:'muted small'},` r${f.revision}`))));
   const showRun=r=>{out.textContent=`$ exit ${r.exitCode}${r.timedOut?' (timeout)':''} · ${r.durationMs}ms · sandbox: ${r.backend}\n${r.stdout}${r.stderr?'\n--- stderr ---\n'+r.stderr:''}`;};
@@ -250,6 +250,76 @@ async function codeTab(p){
         h('button',{class:'secondary',onclick:guard(async()=>{const r=await api('POST',`/v1/projects/${p.id}/preview`,{path:path.value||'index.html'});rc(preview,h('iframe',{class:'preview',src:r.url,sandbox:'allow-scripts allow-forms',title:'Preview'}));})},'Preview')),
       h('div',{class:'row'},cmd,h('button',{class:'secondary',onclick:guard(async()=>{out.textContent='Running…';const r=await api('POST',`/v1/projects/${p.id}/exec`,{command:cmd.value.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g).map(s=>s.replace(/^["']|["']$/g,'')),persist:true});showRun(r);})},'Run in sandbox')),
       out,preview));
+}
+// ---------------- Monaco (SIE-029): progressive enhancement over a textarea ----------------
+const MONACO='https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs';
+let monacoReady=null;
+function loadMonaco(){
+  if(monacoReady)return monacoReady;
+  monacoReady=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');s.src=MONACO+'/loader.js';s.crossOrigin='anonymous';
+    s.onload=()=>{window.require.config({paths:{vs:MONACO}});
+      window.MonacoEnvironment={getWorkerUrl:()=>URL.createObjectURL(new Blob([`self.MonacoEnvironment={baseUrl:'${MONACO}/../'};importScripts('${MONACO}/base/worker/workerMain.js');`],{type:'text/javascript'}))};
+      window.require(['vs/editor/editor.main'],()=>resolve(window.monaco),reject);};
+    s.onerror=()=>reject(new Error('Monaco unavailable'));document.head.append(s);
+  });
+  return monacoReady;
+}
+const LANG={py:'python',js:'javascript',mjs:'javascript',ts:'typescript',json:'json',html:'html',css:'css',md:'markdown',sql:'sql',sh:'shell',go:'go',rs:'rust',java:'java',rb:'ruby',yml:'yaml',yaml:'yaml'};
+/** A textarea that becomes a Monaco editor when the CDN is reachable; .value works either way. */
+function codeEditor(){
+  const ta=h('textarea',{style:'min-height:300px','aria-label':'File content',spellcheck:'false'});
+  const wrap=h('div',{class:'code-editor'},ta);let ed=null;
+  Object.defineProperty(wrap,'value',{get:()=>ed?ed.getValue():ta.value,set:v=>{ta.value=v;ed?.setValue(v);}});
+  wrap.setLanguage=path=>{if(ed)window.monaco.editor.setModelLanguage(ed.getModel(),LANG[String(path).split('.').pop()]||'plaintext');};
+  let plain=false;try{plain=localStorage.getItem('sie_plain_editor')==='1'}catch{}
+  if(!plain)loadMonaco().then(m=>{
+    const host=h('div',{class:'monaco-host',role:'region','aria-label':'Code editor (Monaco). Press Alt+F1 for accessibility help.'});wrap.replaceChildren(host);
+    ed=m.editor.create(host,{value:ta.value,language:'plaintext',theme:matchMedia('(prefers-color-scheme: dark)').matches?'vs-dark':'vs',automaticLayout:true,minimap:{enabled:false},fontSize:13});
+  }).catch(()=>{});
+  return wrap;
+}
+
+// ---------------- Studio (SIE-024..028, 033) ----------------
+async function studioTab(p){
+  const docs=(await api('GET',`/v1/projects/${p.id}/artifacts`)).items.filter(a=>/^application\/vnd\.sie\./.test(a.mediaType));
+  const pane=h('div',{class:'stack'},h('p',{class:'muted'},'Open or create a studio document.'));
+  const waitRun=async id=>{for(;;){const r=await api('GET',`/v1/runs/${id}`);if(['succeeded','failed','cancelled'].includes(r.status))return r;await new Promise(s=>setTimeout(s,800));}};
+  const open=guard(async aid=>{
+    const a=await api('GET',`/v1/projects/${p.id}/artifacts/${aid}`);const kind=/vnd\.sie\.([a-z-]+)\+json/.exec(a.mediaType)[1];
+    const doc=a.body;const json=h('textarea',{class:'mono','aria-label':'Document JSON',style:'min-height:220px'});json.value=JSON.stringify(doc,null,2);
+    const save=guard(async()=>{await api('PUT',`/v1/projects/${p.id}/artifacts/${aid}`,{body:JSON.parse(json.value),mediaType:a.mediaType,title:a.title,expectedRevision:a.currentRevision});toast('Saved revision');open(aid);});
+    const out=h('pre',{class:'output'});const extra=[];
+    if(kind==='image-board'){
+      const grid=h('div',{class:'grid'});
+      for(const it of doc.items){const img=h('div',{class:'media small'},it.artifactId?'…':'(no image yet)');
+        if(it.artifactId)blobUrl(`/v1/projects/${p.id}/artifacts/${it.artifactId}/download`).then(u=>rc(img,h('img',{src:u,alt:it.prompt}))).catch(()=>rc(img,'(unavailable)'));
+        grid.append(h('div',{class:'card'},img,h('div',{class:'small'},it.prompt),it.parentId?h('div',{class:'muted small'},'variation of '+it.parentId):null,it.mask?h('div',{class:'muted small'},`mask ${Math.round(it.mask.x*100)},${Math.round(it.mask.y*100)} ${Math.round(it.mask.w*100)}×${Math.round(it.mask.h*100)}%`):null,
+          h('button',{class:'small',onclick:guard(async()=>{const r=await api('POST',`/v1/projects/${p.id}/studio/${aid}/variations`,{itemId:it.id,count:2});toast('Generating variations…');await waitRun(r.id);await api('POST',`/v1/projects/${p.id}/studio/${aid}/attach`,{runId:r.id,itemId:it.id});open(aid);})},'2 variations')));}
+      const prompt=h('input',{placeholder:'New image prompt','aria-label':'New image prompt'});
+      extra.push(grid,h('div',{class:'row'},prompt,h('button',{onclick:guard(async()=>{const r=await api('POST',`/v1/projects/${p.id}/studio/${aid}/variations`,{prompt:prompt.value,count:1});toast('Generating…');await waitRun(r.id);await api('POST',`/v1/projects/${p.id}/studio/${aid}/attach`,{runId:r.id});open(aid);})},'Generate')));
+    }else if(kind==='multitrack'){
+      const plan=await api('GET',`/v1/projects/${p.id}/studio/${aid}/export`);
+      extra.push(h('table',{},h('tr',{},h('th',{},'Section'),h('th',{},'Start'),h('th',{},'Length'),h('th',{},'Audible tracks')),plan.sections.map(s=>h('tr',{},h('td',{},s.name),h('td',{},s.startSeconds+'s'),h('td',{},s.durationSeconds+'s'),h('td',{},s.tracks.map(t=>t.id+(t.stemArtifactId?'':' (no stem)')).join(', '))))),
+        h('div',{class:'row'},doc.tracks.map(t=>h('button',{class:'secondary small',onclick:guard(async()=>{const r=await api('POST',`/v1/projects/${p.id}/studio/${aid}/stems`,{trackId:t.id});toast('Rendering '+t.name+' stem…');const done=await waitRun(r.id);if(done.status!=='succeeded')return toast('Stem failed: '+(done.error||done.status));await api('POST',`/v1/projects/${p.id}/studio/${aid}/stems/attach`,{runId:r.id,trackId:t.id});open(aid);})},(t.stemArtifactId?'Re-render ':'Render ')+t.name+' stem'))),
+        h('p',{class:'muted small'},plan.missingStems.length?'Missing stems: '+plan.missingStems.join(', '):'All audible tracks have stems.'));
+    }else if(kind==='timeline'){
+      const cl=await api('GET',`/v1/projects/${p.id}/studio/${aid}/export`);
+      extra.push(h('p',{},`${cl.durationSeconds}s · ${cl.durationFrames} frames @ ${cl.fps} fps`+(cl.missingMedia.length?` · clips without media: ${cl.missingMedia.join(', ')}`:'')),
+        h('div',{class:'timeline'},doc.tracks.map(t=>h('div',{class:'tl-track'},h('strong',{},t.id+' ('+t.kind+')'),h('div',{class:'tl-lane'},t.clips.map(c=>h('span',{class:'tl-clip',style:`left:${(c.start/Math.max(cl.durationSeconds,1))*100}%;width:${Math.max(1,(c.duration/Math.max(cl.durationSeconds,1))*100)}%`,title:c.text||c.artifactId||c.id},c.text||c.id)))))),
+        h('div',{class:'row'},h('button',{class:'secondary small',onclick:()=>download(`/v1/projects/${p.id}/studio/${aid}/export?format=srt`,a.title+'.srt')},'Captions (SRT)'),h('button',{class:'secondary small',onclick:()=>download(`/v1/projects/${p.id}/studio/${aid}/export?format=vtt`,a.title+'.vtt')},'Captions (WebVTT)')));
+    }else if(kind==='notebook'){
+      extra.push(...doc.cells.map(c=>h('div',{class:'card'},h('div',{class:'muted small'},c.type+(c.executionCount?` [${c.executionCount}]`:'')),h('pre',{class:'output'},c.source),...(c.outputs||[]).map(o=>h('pre',{class:'output '+(o.stream==='stderr'?'error':'')},o.text)))),
+        h('button',{onclick:guard(async()=>{out.textContent='Running in the sandbox…';const r=await api('POST',`/v1/projects/${p.id}/studio/${aid}/run`,{});toast(`exit ${r.exitCode} · ${r.durationMs}ms`);open(aid);})},'Run all cells'));
+    }
+    rc(pane,h('h3',{},a.title+' · '+kind+' · r'+a.currentRevision),...extra,h('details',{},h('summary',{},'Edit document JSON (validated on save)'),json,h('button',{onclick:save},'Save revision')),out);
+  });
+  const kind=h('select',{'aria-label':'Studio document type'},...['image-board','multitrack','timeline','notebook'].map(k=>h('option',{value:k},k)));
+  const title=h('input',{placeholder:'Title','aria-label':'Studio document title'});
+  return h('div',{class:'split'},
+    h('div',{class:'stack'},h('div',{class:'row'},kind,title,h('button',{class:'small',onclick:guard(async()=>{const a=await api('POST',`/v1/projects/${p.id}/studio`,{kind:kind.value,title:title.value||kind.value});open(a.id);})},'New')),
+      h('div',{class:'list'},docs.map(d=>h('button',{onclick:()=>open(d.id)},h('div',{},d.title),h('div',{class:'muted small'},d.mediaType.replace('application/vnd.sie.','').replace('+json','')))))),
+    pane);
 }
 async function projectRunsTab(p){return runsTable((await api('GET',`/v1/runs?projectId=${p.id}`)).items);}
 async function settingsTab(p){

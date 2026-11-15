@@ -16,6 +16,7 @@ test('console end-to-end in a browser',{skip:skip||(!chromium&&'playwright not i
   try{
     browser=await chromium.launch(process.env.SIE_CHROMIUM_PATH?{executablePath:process.env.SIE_CHROMIUM_PATH}:{});
     const page=await browser.newPage({viewport:{width:1360,height:900}});
+    await page.addInitScript(()=>{try{localStorage.setItem('sie_plain_editor','1')}catch{}}); // deterministic: no CDN editor in tests
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     const shot=async name=>{if(shots){await mkdir(shots,{recursive:true});await page.screenshot({path:`${shots}/${name}.png`,fullPage:true});}};
     await page.goto(app.base+'/');
@@ -75,6 +76,15 @@ test('console end-to-end in a browser',{skip:skip||(!chromium&&'playwright not i
     // the decision must land: the approval card disappears once the gate is approved
     await page.waitForSelector('text=Approval needed',{state:'detached',timeout:30000});
     await page.waitForSelector('.row .state.succeeded',{timeout:60000});
+    // studio: timeline document with frame maths
+    await page.goto(page.url().replace(/#.*/,'')+'#/projects');
+    await page.getByText('Browser project').click();
+    await page.getByRole('tab',{name:'Studio'}).click();
+    await page.selectOption('select[aria-label="Studio document type"]','timeline');
+    await page.fill('input[aria-label="Studio document title"]','Cut one');
+    await page.getByRole('button',{name:'New',exact:true}).click();
+    await page.waitForSelector('text=frames @ 25 fps');
+    await shot('05-studio');
     // code workspace (sandbox)
     if(new Sandbox().backend){
       await page.goto(page.url().replace(/#.*/,'')+'#/projects');
