@@ -216,7 +216,8 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
     const n=full.nodes[0];
     const payload={runId:run.id,status:full.status,artifactId:n?.artifactId||null,output:n?.output||null,error:n?.error||full.error||null,costMicro:full.spentMicro,replayed:Boolean(run.replayed)};
     if(stream){sse(c.res,full.status==='succeeded'?'result':'error',payload);c.res.end();return undefined;}
-    return payload;
+    // raw route: the router does not serialize return values, so the non-streaming reply is written here
+    send(c.res,200,payload);return undefined;
   },{tenant:true,raw:true});
 
   // ---------------- runs & approvals ----------------

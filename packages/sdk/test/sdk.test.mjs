@@ -22,6 +22,8 @@ test('SDK end-to-end against the engine',{skip},async()=>{
     const p=await c.createProject({title:'SDK',kind:'writing'});
     let text='',result;
     for await(const ev of await c.generateStream(p.id,{prompt:'hello',model:{provider:'deterministic',model:'sim-text'}})){if(ev.event==='token')text+=ev.data.text;if(ev.event==='result')result=ev.data;}
+    const plain=await Promise.race([c.generate(p.id,{prompt:'non-streaming',model:{provider:'deterministic',model:'sim-text'}}),new Promise((_,j)=>setTimeout(()=>j(new Error('non-streaming generate did not respond')),20000))]);
+    assert.equal(plain.status,'succeeded');assert.ok(plain.artifactId);assert.equal(plain.output.simulated,true);
     assert.equal(result.status,'succeeded');assert.equal(text,result.output.text);
     const run=await c.runOperation(p.id,'writing.poem',{topic:'rivers'},{model:{provider:'deterministic',model:'sim-text'}});
     const events=[];for await(const ev of await c.followRun(run.id))events.push(ev.event);
