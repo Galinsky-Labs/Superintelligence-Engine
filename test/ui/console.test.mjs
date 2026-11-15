@@ -12,10 +12,12 @@ const shots=process.env.SIE_UI_SCREENSHOTS;
 test('console end-to-end in a browser',{skip:skip||(!chromium&&'playwright not installed'),timeout:240000},async()=>{
   const db=await freshDatabase();const app=await startApp(db,{SIE_SIM_DELAY_MS:'5'});
   const ac=new AbortController();const loop=app.worker.run({signal:ac.signal});
-  const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1360,height:900}});
-  const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  const shot=async name=>{if(shots){await mkdir(shots,{recursive:true});await page.screenshot({path:`${shots}/${name}.png`,fullPage:true});}};
+  let browser;
   try{
+    browser=await chromium.launch(process.env.SIE_CHROMIUM_PATH?{executablePath:process.env.SIE_CHROMIUM_PATH}:{});
+    const page=await browser.newPage({viewport:{width:1360,height:900}});
+    const errors=[];page.on('pageerror',e=>errors.push(e.message));
+    const shot=async name=>{if(shots){await mkdir(shots,{recursive:true});await page.screenshot({path:`${shots}/${name}.png`,fullPage:true});}};
     await page.goto(app.base+'/');
     await page.fill('#dev-handle','uitester');await page.click('#dev-form button');
     await page.waitForSelector('#shell:not(.hidden)');
@@ -65,8 +67,13 @@ test('console end-to-end in a browser',{skip:skip||(!chromium&&'playwright not i
     assert.equal(await page.locator('td',{hasText:'Announcement pipeline'}).count(),1);
     await page.getByRole('button',{name:'Start workflow'}).click();
     await page.waitForSelector('text=Approval needed',{timeout:60000});
+    // wait until the run itself reports the gate so no further re-render races the click
+    await page.waitForSelector('.row .state.awaiting_approval',{timeout:60000});
     await shot('04-approval');
-    await page.getByRole('button',{name:'Approve',exact:true}).click();
+    const approve=page.getByRole('button',{name:'Approve',exact:true});
+    await approve.click();
+    // the decision must land: the approval card disappears once the gate is approved
+    await page.waitForSelector('text=Approval needed',{state:'detached',timeout:30000});
     await page.waitForSelector('.row .state.succeeded',{timeout:60000});
     // code workspace (sandbox)
     if(new Sandbox().backend){
@@ -93,5 +100,5 @@ test('console end-to-end in a browser',{skip:skip||(!chromium&&'playwright not i
     assert.ok(await page.locator('text=deterministic (sim)').count()>=1);
     await shot('06-budget');
     assert.deepEqual(errors,[]);
-  }finally{await browser.close();ac.abort();await loop;await app.stop();await db.drop();}
+  }finally{await browser?.close();ac.abort();await loop;await app.stop();await db.drop();}
 });

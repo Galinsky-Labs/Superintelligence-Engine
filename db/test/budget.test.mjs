@@ -1,7 +1,8 @@
 import test from 'node:test';import assert from 'node:assert/strict';import pg from 'pg';import {BudgetLedger,BudgetError} from '../../packages/budget/src/index.mjs';
-const url=process.env.TEST_DATABASE_URL;
-test('Atomic concurrent reservations, settlement, replay, release and refund', {skip:!url?'requires disposable PostgreSQL':false},async()=>{
- const pool=new pg.Pool({connectionString:url,max:16});
+import {available,testDatabase} from './database.mjs';
+test('Atomic concurrent reservations, settlement, replay, release and refund', {skip:!available?'requires disposable PostgreSQL':false},async()=>{
+ const db=await testDatabase();
+ const pool=new pg.Pool({connectionString:db.url,max:16});
  try{
   const tenant=(await pool.query("INSERT INTO tenants(name) VALUES('Budget test') RETURNING id")).rows[0].id;
   await pool.query("UPDATE budget_global SET spent_micro=0,reserved_micro=0,hard_limit_micro=1000 WHERE singleton=1");
@@ -25,5 +26,5 @@ test('Atomic concurrent reservations, settlement, replay, release and refund', {
   await ledger.release({tenantId:tenant,reservationId:good[1].id});
   const summary=await pool.query('SELECT spent_micro,reserved_micro FROM budget_accounts WHERE tenant_id=$1',[tenant]);assert.equal(summary.rows[0].spent_micro,'4');assert.equal(summary.rows[0].reserved_micro,'30');
   const count=await pool.query("SELECT count(*) FROM budget_events WHERE tenant_id=$1 AND event_type='settle'",[tenant]);assert.equal(Number(count.rows[0].count),1);
- }finally{await pool.end();}
+ }finally{await pool.end();await db.drop();}
 });

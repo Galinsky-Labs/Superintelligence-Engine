@@ -5,6 +5,8 @@ command -v pg_dump
 command -v psql
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
+# Seed rows so the restore check does not depend on other tests having written to this database.
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO public.tenants(name) VALUES ('backup-check-a'),('backup-check-b')" >/dev/null
 pg_dump --dbname="$TEST_DATABASE_URL" --no-owner --no-acl --format=plain --file="$dir/backup.sql"
 psql "postgres://postgres:postgres@127.0.0.1:5432/postgres" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS sie_restored" >/dev/null
 psql "postgres://postgres:postgres@127.0.0.1:5432/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE sie_restored" >/dev/null

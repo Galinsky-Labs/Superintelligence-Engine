@@ -1,7 +1,7 @@
 // Composition root for the integrated engine (API and worker share it).
 import {cpus} from 'node:os';
 import {randomUUID,createHmac} from 'node:crypto';
-import {createPools,SecretBox,log,metrics,sleep,installErrorReporter} from './infra.mjs';
+import {createPools,resolveAppDatabaseUrl,SecretBox,log,metrics,sleep,installErrorReporter} from './infra.mjs';
 import {IdentityService} from './identity.mjs';
 import {ModelCatalog,Meter} from './catalog.mjs';
 import {AssetStore} from './assets.mjs';
@@ -25,7 +25,7 @@ export {PROVIDERS} from './providers.mjs';
 export function createEngine({env=process.env,pools,adapterOverrides,sandbox,fetchImpl}={}){
   installErrorReporter(env.SIE_ERROR_WEBHOOK_URL);
   if(env.OTEL_EXPORTER_OTLP_ENDPOINT)tracer.configure({endpoint:env.OTEL_EXPORTER_OTLP_ENDPOINT,headers:env.OTEL_EXPORTER_OTLP_HEADERS,service:env.OTEL_SERVICE_NAME});
-  const p=pools||createPools({databaseUrl:env.DATABASE_URL,appDatabaseUrl:env.APP_DATABASE_URL});
+  const p=pools||createPools({databaseUrl:env.DATABASE_URL,appDatabaseUrl:resolveAppDatabaseUrl(env)});
   const box=env.SIE_ENCRYPTION_KEY?new SecretBox(env.SIE_ENCRYPTION_KEY):null;
   const production=env.NODE_ENV==='production';
   const devAuth=env.SIE_DEV_AUTH==='1'&&!production;

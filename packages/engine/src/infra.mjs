@@ -16,7 +16,13 @@ export const isObject=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 export const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
 /** Two pools: `system` (trusted server code, sets sie.system) and `tenant` (RLS enforced). */
-export function createPools({databaseUrl=process.env.DATABASE_URL,appDatabaseUrl=process.env.APP_DATABASE_URL,max=Number(process.env.DB_POOL_MAX||16)}={}){
+/** APP_DATABASE_URL, or one derived from DATABASE_URL with the RLS application role (SIE_APP_DB_ROLE/SIE_APP_DB_PASSWORD). */
+export function resolveAppDatabaseUrl(env=process.env){
+  if(env.APP_DATABASE_URL)return env.APP_DATABASE_URL;
+  if(!env.SIE_APP_DB_PASSWORD||!env.DATABASE_URL)return undefined;
+  const u=new URL(env.DATABASE_URL);u.username=env.SIE_APP_DB_ROLE||'sie_app';u.password=env.SIE_APP_DB_PASSWORD;return u.href;
+}
+export function createPools({databaseUrl=process.env.DATABASE_URL,appDatabaseUrl=resolveAppDatabaseUrl(process.env),max=Number(process.env.DB_POOL_MAX||16)}={}){
   if(!databaseUrl)throw new Error('DATABASE_URL is required');
   // The GUC is set at connection startup so every query on a system connection carries it.
   const system=new pg.Pool({connectionString:databaseUrl,max,connectionTimeoutMillis:10000,idleTimeoutMillis:30000,options:'-c sie.system=on'});
