@@ -1,9 +1,0 @@
-{
-  "name": "@superintelligence/catalog",
-  "version": "0.1.0",
-  "type": "module",
-  "exports": "./src/index.mjs",
-  "dependencies": {
-    "pg": "^8.16.3"
-  }
-}

@@ -4,7 +4,7 @@ test('Atomic concurrent reservations, settlement, replay, release and refund', {
  const pool=new pg.Pool({connectionString:url,max:16});
  try{
   const tenant=(await pool.query("INSERT INTO tenants(name) VALUES('Budget test') RETURNING id")).rows[0].id;
-  await pool.query("UPDATE budget_global SET hard_limit_micro=1000 WHERE singleton=1");
+  await pool.query("UPDATE budget_global SET spent_micro=0,reserved_micro=0,hard_limit_micro=1000 WHERE singleton=1");
   await pool.query('INSERT INTO budget_accounts(tenant_id,funded_micro,hard_limit_micro) VALUES($1,50,50)',[tenant]);
   const ledger=new BudgetLedger({pool});
   const attempts=await Promise.allSettled(Array.from({length:20},(_,i)=>ledger.reserve({tenantId:tenant,idempotencyKey:'job-'+i,maximumMicrounits:10})));

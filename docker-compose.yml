@@ -1,0 +1,28 @@
+# Local full stack: PostgreSQL, API (with console) and a separate durable worker.
+services:
+  db:
+    image: postgres:16
+    environment: {POSTGRES_PASSWORD: postgres, POSTGRES_DB: sie}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL","pg_isready -U postgres -d sie"], interval: 5s, retries: 20}
+  api:
+    build: .
+    depends_on: {db: {condition: service_healthy}}
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/sie
+      SIE_STORAGE_DIR: /data
+    ports: ["8080:8080"]
+    volumes: [storage:/data]
+    security_opt: ["seccomp=unconfined"]
+  worker:
+    build: .
+    depends_on: {api: {condition: service_started}}
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/sie
+      SIE_STORAGE_DIR: /data
+    command: ["node","apps/worker/src/worker.mjs"]
+    volumes: [storage:/data]
+    security_opt: ["seccomp=unconfined"]
+volumes: {pgdata: {}, storage: {}}

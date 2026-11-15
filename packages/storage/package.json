@@ -1,14 +1,12 @@
 {
   "name": "@superintelligence/storage",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.mjs",
     "./s3": "./src/s3.mjs",
     "./clamav": "./src/scanner.mjs"
   },
   "dependencies": {
-    "@superintelligence/permissions": "0.1.0",
     "@aws-sdk/client-s3": "^3.910.0",
     "@aws-sdk/s3-request-presigner": "^3.910.0",
     "file-type": "^21.0.0"
