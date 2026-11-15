@@ -19,8 +19,11 @@ export class ProviderError extends EngineError {
 }
 const MAX_BYTES=64*1024*1024;
 
-async function httpError(res,provider){
-  let detail='';try{detail=(await res.text()).slice(0,200)}catch{}
+/** Provider error with a short body excerpt; credentials the adapter holds are redacted from it. */
+export async function httpError(res,provider,secrets=[]){
+  let detail='';try{detail=(await res.text()).slice(0,400)}catch{}
+  for(const s of secrets)if(typeof s==='string'&&s.length>=6){detail=detail.split(s).join('[redacted]');if(s.length>12)detail=detail.split(s.slice(-8)).join('[redacted]');}
+  detail=detail.slice(0,200);
   const retryable=res.status===429||res.status>=500;
   const code=res.status===401||res.status===403?'provider_auth_failed':res.status===429?'provider_rate_limited':res.status>=500?'provider_unavailable':'provider_rejected';
   return new ProviderError(code,`${provider} returned HTTP ${res.status}: ${detail.replace(/\s+/g,' ')}`,{retryable});
@@ -73,7 +76,7 @@ export class OpenAIAdapter {
     let res;
     try{res=await this.fetch(this.base+'/chat/completions',{method:'POST',headers:{...this.headers(),Accept:'text/event-stream'},body:JSON.stringify(body),signal,redirect:'error'})}
     catch(e){if(signal?.aborted)throw new ProviderError('cancelled','Cancelled',{status:499});throw new ProviderError('provider_transport','Could not reach '+this.id,{retryable:true})}
-    if(!res.ok)throw await httpError(res,this.id);
+    if(!res.ok)throw await httpError(res,this.id,[this.apiKey]);
     const calls=new Map();let usage=null,id='',finish='',served=model;
     for await(const ev of sseFrames(res,signal)){
       if(ev.error)throw new ProviderError('provider_failed',String(ev.error.message||'provider error'));
@@ -97,7 +100,7 @@ export class OpenAIAdapter {
   }
   async image({model,prompt,size='1024x1024',signal}){
     const res=await this.fetch(this.base+'/images/generations',{method:'POST',headers:this.headers(),body:JSON.stringify({model,prompt,size,n:1}),signal});
-    if(!res.ok)throw await httpError(res,this.id);
+    if(!res.ok)throw await httpError(res,this.id,[this.apiKey]);
     const j=await res.json();const b64=j.data?.[0]?.b64_json;
     if(b64)return {bytes:Buffer.from(b64,'base64'),mediaType:'image/png',units:1,responseId:String(j.created||'')};
     const url=j.data?.[0]?.url;if(!url)throw new ProviderError('invalid_response','No image returned');
@@ -106,19 +109,19 @@ export class OpenAIAdapter {
   }
   async speech({model,text,voice='alloy',signal}){
     const res=await this.fetch(this.base+'/audio/speech',{method:'POST',headers:this.headers(),body:JSON.stringify({model,input:text,voice,response_format:'mp3'}),signal});
-    if(!res.ok)throw await httpError(res,this.id);
+    if(!res.ok)throw await httpError(res,this.id,[this.apiKey]);
     return {bytes:await readBytes(res),mediaType:'audio/mpeg',units:[...text].length};
   }
   async transcribe({model,bytes,mediaType,filename='audio',signal}){
     const form=new FormData();form.append('model',model);form.append('response_format','verbose_json');
     form.append('file',new Blob([bytes],{type:mediaType}),filename);
     const res=await this.fetch(this.base+'/audio/transcriptions',{method:'POST',headers:this.headers(false),body:form,signal});
-    if(!res.ok)throw await httpError(res,this.id);
+    if(!res.ok)throw await httpError(res,this.id,[this.apiKey]);
     const j=await res.json();return {text:String(j.text||''),units:Math.max(1/60,Number(j.duration||0)/60)};
   }
   async listModels(){
     const res=await this.fetch(this.base+'/models',{headers:this.headers(false),signal:AbortSignal.timeout(10000)});
-    if(!res.ok)throw await httpError(res,this.id);
+    if(!res.ok)throw await httpError(res,this.id,[this.apiKey]);
     const j=await res.json();return (j.data||[]).map(m=>m.id).filter(Boolean);
   }
 }
@@ -190,7 +193,7 @@ export class GeminiAdapter {
     let res;
     try{res=await this.fetch(`${this.base}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':this.apiKey},body:JSON.stringify(body),signal})}
     catch{if(signal?.aborted)throw new ProviderError('cancelled','Cancelled',{status:499});throw new ProviderError('provider_transport','Could not reach Gemini',{retryable:true})}
-    if(!res.ok)throw await httpError(res,'gemini');
+    if(!res.ok)throw await httpError(res,'gemini',[this.apiKey]);
     let usage=null,id='',finish='',n=0;
     for await(const ev of sseFrames(res,signal)){
       id=ev.responseId||id;
@@ -208,7 +211,7 @@ export class GeminiAdapter {
   }
   async listModels(){
     const res=await this.fetch(`${this.base}/models?pageSize=200`,{headers:{'x-goog-api-key':this.apiKey},signal:AbortSignal.timeout(10000)});
-    if(!res.ok)throw await httpError(res,'gemini');return ((await res.json()).models||[]).map(m=>String(m.name).replace(/^models\//,''));
+    if(!res.ok)throw await httpError(res,'gemini',[this.apiKey]);return ((await res.json()).models||[]).map(m=>String(m.name).replace(/^models\//,''));
   }
 }
 
@@ -217,15 +220,15 @@ export class ElevenLabsAdapter {
   constructor({apiKey,baseUrl='https://api.elevenlabs.io/v1',fetchImpl=fetch}){this.id='elevenlabs';this.apiKey=apiKey;this.base=baseUrl.replace(/\/$/,'');this.fetch=fetchImpl;}
   async speech({model,text,voice='21m00Tcm4TlvDq8ikWAM',signal}){
     const res=await this.fetch(`${this.base}/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`,{method:'POST',headers:{'xi-api-key':this.apiKey,'Content-Type':'application/json',Accept:'audio/mpeg'},body:JSON.stringify({text,model_id:model}),signal});
-    if(!res.ok)throw await httpError(res,'elevenlabs');
+    if(!res.ok)throw await httpError(res,'elevenlabs',[this.apiKey]);
     return {bytes:await readBytes(res),mediaType:'audio/mpeg',units:[...text].length};
   }
   async music({prompt,durationSeconds=30,signal}){
     const res=await this.fetch(`${this.base}/music?output_format=mp3_44100_128`,{method:'POST',headers:{'xi-api-key':this.apiKey,'Content-Type':'application/json',Accept:'audio/mpeg'},body:JSON.stringify({prompt,music_length_ms:Math.round(durationSeconds*1000)}),signal});
-    if(!res.ok)throw await httpError(res,'elevenlabs');
+    if(!res.ok)throw await httpError(res,'elevenlabs',[this.apiKey]);
     return {bytes:await readBytes(res),mediaType:'audio/mpeg',units:durationSeconds};
   }
-  async listModels(){const res=await this.fetch(`${this.base}/models`,{headers:{'xi-api-key':this.apiKey}});if(!res.ok)throw await httpError(res,'elevenlabs');return (await res.json()).map(m=>m.model_id);}
+  async listModels(){const res=await this.fetch(`${this.base}/models`,{headers:{'xi-api-key':this.apiKey}});if(!res.ok)throw await httpError(res,'elevenlabs',[this.apiKey]);return (await res.json()).map(m=>m.model_id);}
 }
 
 // ---------------- Replicate (asynchronous predictions) ----------------
@@ -235,13 +238,13 @@ export class ReplicateAdapter {
   async submit({model,input,signal}){
     if(!/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(model))throw new ProviderError('invalid_model','Replicate model must be owner/name',{status:400});
     const res=await this.fetch(`${this.base}/models/${model}/predictions`,{method:'POST',headers:this.h(),body:JSON.stringify({input}),signal});
-    if(!res.ok)throw await httpError(res,'replicate');
+    if(!res.ok)throw await httpError(res,'replicate',[this.apiKey]);
     const j=await res.json();return {taskId:String(j.id),status:j.status};
   }
   async poll({taskId,signal}){
     if(!/^[a-z0-9]{6,64}$/i.test(taskId))throw new ProviderError('invalid_task','Invalid prediction id',{status:400});
     const res=await this.fetch(`${this.base}/predictions/${taskId}`,{headers:this.h(),signal});
-    if(!res.ok)throw await httpError(res,'replicate');
+    if(!res.ok)throw await httpError(res,'replicate',[this.apiKey]);
     const j=await res.json();
     if(j.status==='succeeded'){
       const url=Array.isArray(j.output)?j.output[0]:j.output;
@@ -249,7 +252,7 @@ export class ReplicateAdapter {
       const u=new URL(url);
       if(u.protocol!=='https:'&&!this.base.startsWith('http://'))throw new ProviderError('unsafe_output','Non-HTTPS output');
       if(!this.outHosts.includes(u.hostname)&&!this.base.startsWith('http://'))throw new ProviderError('unsafe_output','Output host not allowlisted');
-      const file=await this.fetch(url,{signal});if(!file.ok)throw await httpError(file,'replicate');
+      const file=await this.fetch(url,{signal});if(!file.ok)throw await httpError(file,'replicate',[this.apiKey]);
       return {status:'succeeded',bytes:await readBytes(file),mediaType:file.headers.get('content-type')||'application/octet-stream',units:Number(j.metrics?.predict_time||1)};
     }
     if(j.status==='failed'||j.status==='canceled')return {status:'failed',error:String(j.error||j.status).slice(0,300)};
