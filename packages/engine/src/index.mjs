@@ -13,6 +13,7 @@ import {Workspace} from './workspace.mjs';
 import {Connections} from './connections.mjs';
 import {Scheduler} from './scheduler.mjs';
 import {WorkflowLibrary} from './workflows.mjs';
+import {Governance} from './governance.mjs';
 import {tracer} from './tracing.mjs';
 import {egressPolicy} from './net.mjs';
 import {brokerFromEnvironment} from '../../auth/src/index.mjs';
@@ -32,8 +33,9 @@ export function createEngine({env=process.env,pools,adapterOverrides,sandbox,fet
   const egress=egressPolicy(env);
   const assets=new AssetStore({dir:env.SIE_STORAGE_DIR||'./var/storage',system:p.system,clamSocket:env.CLAMAV_SOCKET});
   const projects=new ProjectStore({tenant:p.tenant,system:p.system,assets});
-  const runs=new RunStore({system:p.system});
-  const catalog=new ModelCatalog({system:p.system,secretBox:box,env,adapterOverrides});
+  const governance=new Governance({system:p.system});
+  const runs=new RunStore({system:p.system,governance});
+  const catalog=new ModelCatalog({system:p.system,secretBox:box,env,adapterOverrides,governance});
   const meter=new Meter({system:p.system});
   const sbx=sandbox||new Sandbox();
   const workspace=new Workspace({system:p.system,tenant:p.tenant,sandbox:sbx,storageDir:env.SIE_STORAGE_DIR||'./var/storage',previewSecret:env.SIE_PREVIEW_SECRET||(env.SIE_ENCRYPTION_KEY?createHmac('sha256',Buffer.from(env.SIE_ENCRYPTION_KEY,'hex')).update('sie-preview-token-v1').digest('hex'):undefined)}); // domain-separated key
@@ -41,8 +43,8 @@ export function createEngine({env=process.env,pools,adapterOverrides,sandbox,fet
   const executor=new Executor({system:p.system,runs,catalog,meter,projects,assets,sandbox:sbx,workspace,connections,egress});
   const scheduler=new Scheduler({system:p.system,runs,projects});
   const workflows=new WorkflowLibrary({system:p.system,runs});
-  const identity=new IdentityService({system:p.system,oidcBroker:brokerFromEnvironment(env),devAuth});
-  return {env,pools:p,box,production,devAuth,identity,catalog,meter,assets,projects,runs,executor,sandbox:sbx,workspace,connections,scheduler,workflows,
+  const identity=new IdentityService({system:p.system,oidcBroker:brokerFromEnvironment(env),devAuth,governance});
+  return {env,pools:p,box,production,devAuth,governance,identity,catalog,meter,assets,projects,runs,executor,sandbox:sbx,workspace,connections,scheduler,workflows,
     async close(){await p.end();await identity.oidc?.pool?.end?.().catch(()=>{});}};
 }
 

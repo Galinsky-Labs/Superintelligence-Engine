@@ -9,8 +9,8 @@ export function textCost(price,inputTokens,outputTokens){return Math.ceil((input
 export function unitCost(price,units){return Math.ceil(units*price.unit);}
 
 export class ModelCatalog {
-  constructor({system,secretBox=null,env=process.env,enableTestProvider=env.SIE_ENABLE_TEST_PROVIDER==='1',adapterOverrides={}}){
-    this.db=system;this.box=secretBox;this.env=env;this.testProvider=enableTestProvider;this.overrides=adapterOverrides;this.adapters=new Map();this.priceCache=null;
+  constructor({system,secretBox=null,env=process.env,enableTestProvider=env.SIE_ENABLE_TEST_PROVIDER==='1',adapterOverrides={},governance=null}){
+    this.governance=governance;this.db=system;this.box=secretBox;this.env=env;this.testProvider=enableTestProvider;this.overrides=adapterOverrides;this.adapters=new Map();this.priceCache=null;
   }
   providerIds(){return Object.keys(PROVIDERS).filter(p=>p!=='deterministic'||this.testProvider);}
 
@@ -26,6 +26,7 @@ export class ModelCatalog {
     return null;
   }
   async adapter(tenantId,provider){
+    if(this.governance&&tenantId)await this.governance.assertProvider(tenantId,provider);
     if(this.overrides[provider])return this.overrides[provider];
     const cred=await this.credentialFor(tenantId,provider);
     if(!cred)fail('provider_unconfigured',409,`No credential configured for provider ${provider}`);
@@ -56,6 +57,8 @@ export class ModelCatalog {
       const caps=o.unit&&!o.input&&!o.output?['image']:['chat','tools','structured'];
       out.push({provider,model,label:model,capabilities:caps,price:caps.includes('chat')?{input:o.input,output:o.output}:{unit:o.unit,per:'unit'},priceKnown:true,available:configured.get(provider),configured:configured.get(provider),custom:true});
     }
+    const allowed=this.governance&&tenantId?(await this.governance.policy(tenantId)).allowedProviders:null;
+    if(allowed)for(const m of out)if(m.provider!=='deterministic'&&!allowed.includes(m.provider)){m.available=false;m.blockedByPolicy=true;}
     return out;
   }
   /** Pick a usable model. Explicit choice must be priced and configured; otherwise choose the best available. */

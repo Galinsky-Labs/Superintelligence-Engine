@@ -83,7 +83,7 @@ function serializeNode(n){return {key:n.node_key,type:n.type,state:n.state,depen
   output:n.output,artifactId:n.artifact_id,error:n.error,costMicro:Number(n.cost_micro),startedAt:n.started_at,finishedAt:n.finished_at,config:n.config}}
 
 export class RunStore {
-  constructor({system,notify=true}){this.db=system;this.notify=notify;}
+  constructor({system,notify=true,governance=null}){this.db=system;this.notify=notify;this.governance=governance;}
 
   async event(db,run,type,payload={},nodeKey=null){
     const r=await db.query('INSERT INTO run_events(tenant_id,run_id,node_key,type,payload) VALUES($1,$2,$3,$4,$5) RETURNING id',[run.tenant_id||run.tenantId,run.id,nodeKey,type,JSON.stringify(payload)]);
@@ -95,6 +95,7 @@ export class RunStore {
     requireUUID(projectId,'project');
     await requireMembership(this.db,principal,tenantId,'member');
     const v=validateSpec(spec);
+    if(this.governance)v.budgetCeilingMicro=await this.governance.clampBudget(tenantId,v.budgetCeilingMicro||0); // workspace run-budget cap
     if(idempotencyKey!==undefined)check(typeof idempotencyKey==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(idempotencyKey),'invalid_idempotency_key');
     return tx(this.db,async db=>{
       check((await db.query('SELECT 1 FROM projects WHERE tenant_id=$1 AND id=$2 AND archived_at IS NULL',[tenantId,projectId])).rowCount,'project_not_found',404);
