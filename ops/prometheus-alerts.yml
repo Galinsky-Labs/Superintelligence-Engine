@@ -1,0 +1,33 @@
+# SIE-038: alert rules for the engine's /metrics (scrape with SIE_METRICS_TOKEN as a bearer token).
+groups:
+  - name: superintelligence-engine
+    rules:
+      - alert: EngineDown
+        expr: up{job="superintelligence-engine"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations: {summary: "Engine is not answering /metrics"}
+      - alert: RunsBacklog
+        expr: sie_runs{status="queued"} > 50
+        for: 10m
+        labels: {severity: warn}
+        annotations: {summary: "More than 50 runs queued for 10 minutes (workers saturated or stopped)"}
+      - alert: NodeFailureRate
+        expr: rate(sie_nodes_failed_total[15m]) > 0.2
+        for: 15m
+        labels: {severity: warn}
+        annotations: {summary: "Agent nodes failing faster than one per 5 seconds"}
+      - alert: HttpErrorRate
+        expr: sum(rate(sie_http_requests_total{status=~"5.."}[5m])) / sum(rate(sie_http_requests_total[5m])) > 0.05
+        for: 10m
+        labels: {severity: page}
+        annotations: {summary: "More than 5% of API requests return 5xx"}
+      - alert: SlowRequests
+        expr: histogram_quantile(0.95, sum(rate(sie_http_request_seconds_bucket[5m])) by (le)) > 2
+        for: 15m
+        labels: {severity: warn}
+        annotations: {summary: "p95 API latency above 2 s"}
+      - alert: SpendSpike
+        expr: increase(sie_provider_cost_micro_total[1h]) > 5000000
+        labels: {severity: warn}
+        annotations: {summary: "More than $5 of provider spend in the last hour"}

@@ -53,6 +53,40 @@
         }
       }
     },
+    "/v1/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "get_v1_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "operationId": "get_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        }
+      }
+    },
     "/metrics": {
       "get": {
         "tags": [
@@ -350,6 +384,106 @@
           },
           {
             "name": "iid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tid}/policy": {
+      "get": {
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "get_v1_tenants_tid_policy",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "put_v1_tenants_tid_policy",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "4XX": {
+            "description": "Error {code,message}"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/v1/tenants/{tid}/audit": {
+      "get": {
+        "tags": [
+          "tenants"
+        ],
+        "operationId": "get_v1_tenants_tid_audit",
+        "parameters": [
+          {
+            "name": "tid",
             "in": "path",
             "required": true,
             "schema": {

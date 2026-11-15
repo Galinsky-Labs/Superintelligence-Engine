@@ -5,7 +5,7 @@ const PRODUCTS=new Set(['academy','command','engine']);
 const TOKEN=/^sie_[A-Za-z0-9_-]{30,80}$/;
 
 export class IdentityService {
-  constructor({system,oidcBroker=null,devAuth=false}){this.db=system;this.oidc=oidcBroker;this.devAuth=devAuth;}
+  constructor({system,oidcBroker=null,devAuth=false,governance=null}){this.db=system;this.oidc=oidcBroker;this.devAuth=devAuth;this.governance=governance;}
 
   /** Resolve the caller. Returns null when unauthenticated. */
   async authenticate(req){
@@ -101,6 +101,7 @@ export class IdentityService {
     requireUUID(target,'identity');
     const existing=await this.db.query('SELECT role FROM memberships WHERE tenant_id=$1 AND identity_id=$2',[tenantId,target]);
     if(existing.rows[0]?.role==='owner')check(myRole==='owner','insufficient_role',403);
+    if(!existing.rows.length&&this.governance)await this.governance.assertSeat(tenantId,target);
     await this.db.query('INSERT INTO memberships(tenant_id,identity_id,role) VALUES($1,$2,$3) ON CONFLICT(tenant_id,identity_id) DO UPDATE SET role=EXCLUDED.role',[tenantId,target,role]);
     return {identityId:target,role};
   }

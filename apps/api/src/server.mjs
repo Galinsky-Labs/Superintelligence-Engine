@@ -6,6 +6,7 @@ import {extname,join,normalize} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import pg from 'pg';
+import {PROVIDERS} from '../../../packages/engine/src/providers.mjs';
 import {createEngine,Worker,EngineError,check,fail,isUUID,log,metrics,listWorkspaces,compileOperation,requireMembership} from '../../../packages/engine/src/index.mjs';
 import {ENGINE_VERSION,WORKSPACE_KINDS} from '../../../packages/core/src/index.mjs';
 import {handleProductCors,normalizeProductOrigins,isAllowedBrowserOrigin} from './product-cors.mjs';
@@ -17,6 +18,11 @@ import {tracer,Tracer} from '../../../packages/engine/src/tracing.mjs';
 const CONSOLE_DIR=fileURLToPath(new URL('../../console/public/',import.meta.url));
 const VERSION='0.2.0';
 const MIME={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.json':'application/json','.txt':'text/plain; charset=utf-8','.md':'text/markdown; charset=utf-8','.wav':'audio/wav','.mp3':'audio/mpeg','.mp4':'video/mp4','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp'};
+/** Records an administrative action in the tenant audit log after it succeeded, then returns its result. */
+async function audited(c,tenantId,action,target,result,detail=()=>({})){
+  await c.engine.governance.record(tenantId,c.principal.identityId,action,target(result),detail(result)||{}).catch(err=>log.error('audit_write_failed',{action,message:err.message}));
+  return result;
+}
 /** Validates studio documents saved through the generic artifact API. */
 function studioChecked(b){const kind=kindOfMediaType(b?.mediaType);if(kind)assertStudio(kind,b.body);return b;}
 const SECURITY_HEADERS={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY'};
@@ -90,6 +96,39 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
     const m=await e.pools.system.query("SELECT count(*)::int n FROM schema_migrations");
     return {status:'ready',database:'ok',migrations:m.rows[0].n,sandbox:e.sandbox.info()};
   },{public:true});
+  // SIE-038: public service status (no tenant data, no secrets).
+  const statusReport=async()=>{
+    const t0=Date.now();let db='ok',latencyMs=null,queue=null,recent=null,migrations=null;
+    try{
+      await e.pools.system.query('SELECT 1');latencyMs=Date.now()-t0;
+      migrations=(await e.pools.system.query('SELECT count(*)::int n FROM schema_migrations')).rows[0].n;
+      queue=(await e.pools.system.query(`SELECT count(*) FILTER (WHERE status='queued')::int queued,count(*) FILTER (WHERE status='running')::int running,
+        extract(epoch FROM now()-min(created_at) FILTER (WHERE status='queued'))::int oldest_queued_seconds FROM runs WHERE status IN ('queued','running')`)).rows[0];
+      recent=(await e.pools.system.query(`SELECT count(*) FILTER (WHERE status='succeeded')::int succeeded,count(*) FILTER (WHERE status='failed')::int failed
+        FROM runs WHERE finished_at>now()-interval '1 hour'`)).rows[0];
+    }catch{db='unavailable';}
+    const finished=(recent?.succeeded||0)+(recent?.failed||0);const failureRate=finished?recent.failed/finished:0;
+    const issues=[];
+    if(db!=='ok')issues.push('Database unavailable');
+    if((queue?.oldest_queued_seconds||0)>300)issues.push('Runs have waited more than 5 minutes to start');
+    if(finished>=5&&failureRate>0.5)issues.push('More than half of recent runs failed');
+    const providers=Object.entries(PROVIDERS).filter(([id,d])=>id!=='deterministic'&&d.env&&env[d.env]).map(([id])=>id);
+    return {status:db!=='ok'?'down':issues.length?'degraded':'operational',checkedAt:new Date().toISOString(),version:VERSION,engineVersion:ENGINE_VERSION,
+      components:{database:{status:db,latencyMs,migrations},worker:{mode:worker?'inline':'external',queued:queue?.queued??null,running:queue?.running??null,oldestQueuedSeconds:queue?.oldest_queued_seconds??null},
+        runsLastHour:{succeeded:recent?.succeeded??null,failed:recent?.failed??null,failureRate:+failureRate.toFixed(3)},
+        providers:{configured:providers,simulator:env.SIE_ENABLE_TEST_PROVIDER==='1'},sandbox:{available:Boolean(e.sandbox.backend)}},issues};
+  };
+  route('GET','/v1/status',async()=>statusReport(),{public:true});
+  route('GET','/status',async c=>{const r=await statusReport();const esc=x=>String(x).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+    const row=(k,v)=>`<tr><th scope="row">${esc(k)}</th><td>${esc(v)}</td></tr>`;const comp=r.components;
+    const html=`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Engine status</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#1b2733}h1{font-size:1.4rem}.s{display:inline-block;padding:4px 10px;border-radius:4px;font-weight:700}.operational{background:#e2f5e6;color:#185c2b}.degraded{background:#fff3d6;color:#6b4c00}.down{background:#fde3e3;color:#8a1c1c}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px;border-bottom:1px solid #dde4ea}@media(prefers-color-scheme:dark){body{background:#11181f;color:#dbe5ef}th,td{border-color:#34414e}}</style></head>
+<body><h1>Superintelligence Engine status</h1><p><span class="s ${esc(r.status)}">${esc(r.status)}</span> · checked ${esc(r.checkedAt)}</p>
+${r.issues.length?`<ul>${r.issues.map(i=>`<li>${esc(i)}</li>`).join('')}</ul>`:'<p>All systems normal.</p>'}
+<table>${row('Database',comp.database.status+(comp.database.latencyMs!=null?` (${comp.database.latencyMs} ms)`:''))}${row('Worker',`${comp.worker.mode}; ${comp.worker.queued??'?'} queued, ${comp.worker.running??'?'} running`)}
+${row('Runs (last hour)',`${comp.runsLastHour.succeeded??'?'} succeeded, ${comp.runsLastHour.failed??'?'} failed`)}${row('AI providers',comp.providers.configured.length?comp.providers.configured.join(', '):'none configured'+(comp.providers.simulator?' (simulator enabled)':''))}
+${row('Code sandbox',comp.sandbox.available?'available':'disabled')}${row('Version',r.version)}</table><p><a href="/v1/status">JSON</a></p></body></html>`;
+    c.res.writeHead(r.status==='down'?503:200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'",...SECURITY_HEADERS});c.res.end(html);return undefined;},{public:true,raw:true});
   route('GET','/metrics',async(ctx)=>{
     if(env.SIE_METRICS_TOKEN&&ctx.req.headers.authorization!=='Bearer '+env.SIE_METRICS_TOKEN)fail('unauthorized',401);
     const q=await e.pools.system.query(`SELECT status,count(*)::int n FROM runs GROUP BY status`);
@@ -119,18 +158,21 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
   route('GET','/v1/tenants',async c=>e.identity.listTenants(c.principal));
   route('POST','/v1/tenants',async c=>e.identity.createTenant(c.principal,await json(c.req)),{status:201});
   route('GET','/v1/tenants/:tid/members',async c=>e.identity.listMembers(c.principal,c.params.tid));
-  route('PUT','/v1/tenants/:tid/members',async c=>e.identity.setMember(c.principal,c.params.tid,await json(c.req)));
-  route('DELETE','/v1/tenants/:tid/members/:iid',async c=>e.identity.removeMember(c.principal,c.params.tid,c.params.iid));
+  route('PUT','/v1/tenants/:tid/members',async c=>audited(c,c.params.tid,'member.set',r=>r.identityId,await e.identity.setMember(c.principal,c.params.tid,await json(c.req)),r=>({role:r.role})));
+  route('DELETE','/v1/tenants/:tid/members/:iid',async c=>audited(c,c.params.tid,'member.remove',()=>c.params.iid,await e.identity.removeMember(c.principal,c.params.tid,c.params.iid)));
+  route('GET','/v1/tenants/:tid/policy',async c=>e.governance.getPolicy(c.principal,c.params.tid));
+  route('PUT','/v1/tenants/:tid/policy',async c=>e.governance.setPolicy(c.principal,c.params.tid,await json(c.req)));
+  route('GET','/v1/tenants/:tid/audit',async c=>e.governance.audit(c.principal,c.params.tid,{limit:c.query.get('limit'),before:c.query.get('before')||undefined}));
 
   // ---------------- providers, models, budget ----------------
   route('GET','/v1/models',async c=>{await requireMembership(e.pools.system,c.principal,c.tenant,'viewer');const cap=c.query.get('capability');const items=(await e.catalog.models(c.tenant)).filter(m=>!cap||m.capabilities.includes(cap));return {items};},{tenant:true});
   route('GET','/v1/providers',async c=>e.catalog.providers(c.principal,c.tenant),{tenant:true});
-  route('PUT','/v1/providers/:provider',async c=>e.catalog.setCredential(c.principal,c.tenant,{provider:c.params.provider,...await json(c.req)}),{tenant:true});
-  route('DELETE','/v1/providers/:provider',async c=>e.catalog.deleteCredential(c.principal,c.tenant,c.params.provider),{tenant:true});
+  route('PUT','/v1/providers/:provider',async c=>audited(c,c.tenant,'provider_credential.set',()=>c.params.provider,await e.catalog.setCredential(c.principal,c.tenant,{provider:c.params.provider,...await json(c.req)})),{tenant:true});
+  route('DELETE','/v1/providers/:provider',async c=>audited(c,c.tenant,'provider_credential.delete',()=>c.params.provider,await e.catalog.deleteCredential(c.principal,c.tenant,c.params.provider)),{tenant:true});
   route('GET','/v1/providers/:provider/models',async c=>e.catalog.discover(c.principal,c.tenant,c.params.provider),{tenant:true});
   route('GET','/v1/budget',async c=>e.meter.summary(c.principal,c.tenant,{days:Number(c.query.get('days')||30)}),{tenant:true});
   route('GET','/v1/usage',async c=>e.meter.summary(c.principal,c.tenant,{days:Number(c.query.get('days')||30)}),{tenant:true});
-  route('PUT','/v1/budget',async c=>e.meter.setTenantLimit(c.principal,c.tenant,await json(c.req)),{tenant:true});
+  route('PUT','/v1/budget',async c=>audited(c,c.tenant,'budget.limit',()=>'tenant',await e.meter.setTenantLimit(c.principal,c.tenant,await json(c.req)),r=>r),{tenant:true});
 
   // ---------------- projects & artifacts ----------------
   route('GET','/v1/projects',async c=>e.projects.listProjects(c.principal,c.tenant,{includeArchived:c.query.get('archived')==='1',q:c.query.get('q')||undefined}),{tenant:true});
@@ -138,7 +180,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
   route('POST','/v1/projects/import',async c=>e.projects.importProject(c.principal,c.tenant,await json(c.req,200*1024*1024)),{tenant:true,status:201});
   route('GET','/v1/projects/:pid',async c=>e.projects.getProject(c.principal,c.tenant,c.params.pid),{tenant:true});
   route('PATCH','/v1/projects/:pid',async c=>e.projects.updateProject(c.principal,c.tenant,c.params.pid,await json(c.req)),{tenant:true});
-  route('DELETE','/v1/projects/:pid',async c=>e.projects.deleteProject(c.principal,c.tenant,c.params.pid),{tenant:true});
+  route('DELETE','/v1/projects/:pid',async c=>audited(c,c.tenant,'project.delete',()=>c.params.pid,await e.projects.deleteProject(c.principal,c.tenant,c.params.pid)),{tenant:true});
   route('GET','/v1/projects/:pid/export',async c=>{
     const x=await e.projects.exportProject(c.principal,c.tenant,c.params.pid,{embedAssets:c.query.get('assets')!=='0'||c.query.get('format')==='zip'});
     if(c.query.get('format')==='zip'){
@@ -286,7 +328,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
     return undefined;
   },{tenant:true,raw:true});
   route('GET','/v1/approvals',async c=>e.runs.listApprovals(c.principal,c.tenant,{status:c.query.has('status')?c.query.get('status')||null:'pending'}),{tenant:true});
-  route('POST','/v1/approvals/:id',async c=>e.runs.decide(c.principal,c.tenant,c.params.id,await json(c.req)),{tenant:true});
+  route('POST','/v1/approvals/:id',async c=>{const b=await json(c.req);return audited(c,c.tenant,'approval.'+(b.decision==='approve'?'approve':'deny'),()=>c.params.id,await e.runs.decide(c.principal,c.tenant,c.params.id,b));},{tenant:true});
 
   // ---------------- saved workflows ----------------
   route('GET','/v1/projects/:pid/workflows',async c=>e.workflows.list(c.principal,c.tenant,c.params.pid),{tenant:true});
@@ -404,7 +446,7 @@ export function createApp({engine,env=process.env,inlineWorker}={}){
       }
       let tenant=null;
       if(r.opts.tenant){tenant=req.headers['x-tenant-id']||url.searchParams.get('tenant');if(!isUUID(tenant))return send(res,400,{code:'tenant_required',message:'Set the X-Tenant-Id header'});}
-      const ctx={req,res,params,query:url.searchParams,principal,tenant};
+      const ctx={req,res,params,query:url.searchParams,principal,tenant,engine:e};
       const out=await r.handler(ctx);
       if(r.opts.raw)return;
       send(res,r.opts.status||200,out??{});

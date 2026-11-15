@@ -33,7 +33,8 @@
     "admin": "node scripts/admin.mjs",
     "registry:check": "node scripts/validate-pr-registry.mjs",
     "start:production": "node scripts/prepare-production.mjs && node apps/api/src/server.mjs",
-    "certify:adapter": "node scripts/certify-adapter.mjs"
+    "certify:adapter": "node scripts/certify-adapter.mjs",
+    "load:trial": "node scripts/load-trial.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.7.0",
