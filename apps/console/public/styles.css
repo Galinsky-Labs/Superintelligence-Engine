@@ -50,3 +50,10 @@ iframe.preview{width:100%;height:420px;border:1px solid var(--line);border-radiu
 .dag{display:flex;flex-wrap:wrap;gap:8px}
 .dag .node{border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel);min-width:160px}
 @media (max-width:760px){.shell{grid-template-columns:1fr}.sidebar{flex-direction:row;overflow:auto;grid-column:1}.split{grid-template-columns:1fr}.topbar{flex-wrap:wrap}}
+/* Studio + Monaco */
+.monaco-host{height:360px;border:1px solid var(--line,#ccc);border-radius:6px}
+.mono{font-family:ui-monospace,monospace;font-size:12px}
+.media.small img{max-width:100%;max-height:180px;display:block}
+.timeline{display:flex;flex-direction:column;gap:6px}.tl-track{display:grid;grid-template-columns:140px 1fr;gap:8px;align-items:center}
+.tl-lane{position:relative;height:28px;background:rgba(127,127,127,.12);border-radius:4px;overflow:hidden}
+.tl-clip{position:absolute;top:3px;bottom:3px;background:#3d7bd9;color:#fff;font-size:11px;padding:2px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
