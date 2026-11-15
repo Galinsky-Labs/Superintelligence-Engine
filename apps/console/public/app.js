@@ -269,12 +269,17 @@ async function runsPage(){return h('div',{},h('h2',{},'Runs'),runsTable((await a
 async function runPage(id){
   const wrap=h('div',{class:'stack'});const log=h('pre',{class:'output',style:'max-height:300px'});const outputs=h('div',{class:'stack'});
   const ctrl=new AbortController();
+  const approvalCards=new Map();
   const render=async()=>{
     const r=await api('GET',`/v1/runs/${id}`);
     const dag=h('div',{class:'dag'},r.nodes.map(n=>h('div',{class:'node'},h('strong',{},n.key),' ',stateTag(n.state),h('div',{class:'muted small'},`${n.type}${n.parent?` · delegated by ${n.parent}`:''}${n.dependsOn.length?` · after ${n.dependsOn.join(', ')}`:''}`),
       n.error?h('div',{class:'small error'},n.error):null,n.artifactId?h('div',{class:'small'},h('a',{href:`#/projects/${r.projectId}/artifacts`},'artifact')):null)));
-    const approvals=r.approvals.filter(a=>a.status==='pending').map(a=>h('div',{class:'card'},h('strong',{},`Approval needed (${a.effect}): ${a.action}`),h('pre',{class:'output'},a.summary),
-      h('div',{class:'row'},h('button',{onclick:guard(async()=>{await api('POST',`/v1/approvals/${a.id}`,{decision:'approve'});render();})},'Approve'),h('button',{class:'danger',onclick:guard(async()=>{await api('POST',`/v1/approvals/${a.id}`,{decision:'deny'});render();})},'Deny'))));
+    // Keep each pending approval card (and its buttons) as the same DOM node across re-renders so a
+    // click is never lost to a re-render that swaps the button out from under the pointer.
+    const pendingApprovals=r.approvals.filter(a=>a.status==='pending');
+    for(const k of [...approvalCards.keys()])if(!pendingApprovals.some(a=>a.id===k))approvalCards.delete(k);
+    const approvals=pendingApprovals.map(a=>approvalCards.get(a.id)||approvalCards.set(a.id,h('div',{class:'card'},h('strong',{},`Approval needed (${a.effect}): ${a.action}`),h('pre',{class:'output'},a.summary),
+      h('div',{class:'row'},h('button',{onclick:guard(async()=>{await api('POST',`/v1/approvals/${a.id}`,{decision:'approve'});render();})},'Approve'),h('button',{class:'danger',onclick:guard(async()=>{await api('POST',`/v1/approvals/${a.id}`,{decision:'deny'});render();})},'Deny')))).get(a.id));
     rc(outputs,...r.nodes.filter(n=>n.output).map(n=>h('details',{},h('summary',{},`${n.key} output${n.output.simulated?' (SIMULATED)':''}`),h('pre',{class:'output'},typeof n.output.text==='string'?n.output.text:JSON.stringify(n.output.data??n.output,null,2)))));
     rc(wrap,
       h('div',{class:'row'},h('h2',{style:'margin:0'},r.title||'Run'),stateTag(r.status),h('span',{class:'muted'},`cost ${usd(r.spentMicro)}${r.budgetCeilingMicro?` / ceiling ${usd(r.budgetCeilingMicro)}`:''}`),h('span',{class:'spacer'}),

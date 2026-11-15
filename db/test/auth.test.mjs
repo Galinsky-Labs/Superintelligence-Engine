@@ -1,7 +1,8 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {randomBytes} from 'node:crypto';import pg from 'pg';import {AuthBroker} from '../../packages/auth/src/index.mjs';
-const url=process.env.TEST_DATABASE_URL;
-test('SSO shares verified identity but isolates Academy/Command sessions, CSRF state and replay', {skip:!url?'requires PostgreSQL':false},async()=>{
- const pool=new pg.Pool({connectionString:url});
+import {available,testDatabase} from './database.mjs';
+test('SSO shares verified identity but isolates Academy/Command sessions, CSRF state and replay', {skip:!available?'requires PostgreSQL':false},async()=>{
+ const db=await testDatabase();
+ const pool=new pg.Pool({connectionString:db.url});
  const driver={authorize:async({product,state})=>'https://idp.invalid/login?state='+state+'&product='+product,redeem:async({state,nonce,verifier})=>{assert.ok(state&&nonce&&verifier);return {issuer:'https://idp.invalid',subject:'test-user-42'};}};
  const auth=new AuthBroker({pool,driver,encryptionKeyHex:randomBytes(32).toString('hex'),sessionLifetimeSeconds:3600});
  try{
@@ -22,5 +23,5 @@ test('SSO shares verified identity but isolates Academy/Command sessions, CSRF s
   await auth.revokeAll(login.identityId);
   assert.equal(await auth.session({product:'command',cookieHeader:cLogin.sessionCookie.split(';')[0]}),null);
   assert.match(login.sessionCookie,/HttpOnly; Secure; SameSite=Lax/);
- }finally{await pool.end();}
+ }finally{await pool.end();await db.drop();}
 });

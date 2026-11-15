@@ -1,0 +1,34 @@
+# Render Blueprint for the engine (single web service; the worker runs inline).
+# Database: Neon PostgreSQL (direct, non-pooled host — the API uses LISTEN/NOTIFY and per-connection settings).
+services:
+  - type: web
+    name: superintelligence-engine
+    runtime: node
+    plan: free
+    region: ohio
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install --omit=dev --ignore-scripts --no-audit --no-fund
+    startCommand: npm run start:production
+    healthCheckPath: /ready
+    envVars:
+      - {key: NODE_ENV, value: production}
+      - {key: NODE_VERSION, value: "22"}
+      - {key: SIE_INLINE_WORKER, value: "1"}
+      - {key: SIE_SANDBOX, value: disabled}          # no user namespaces on Render; code execution is off
+      - {key: SIE_ENABLE_TEST_PROVIDER, value: "1"}  # simulator (labelled SIMULATED) until provider keys are added
+      - {key: SIE_TRUST_PROXY, value: "1"}
+      - {key: SIE_STORAGE_DIR, value: /tmp/sie-storage}  # ephemeral on free instances; set SIE_S3_* for durable assets
+      - {key: DB_POOL_MAX, value: "8"}
+      - {key: DATABASE_URL, sync: false}             # Neon owner role, direct host
+      - {key: SIE_APP_DB_PASSWORD, sync: false}      # password for the RLS role created at start (sie_app)
+      - {key: SIE_ENCRYPTION_KEY, sync: false}       # 64 hex chars
+      - {key: SIE_BOOTSTRAP_TOKEN, sync: false}      # sie_<hex>; first operator API token
+      - {key: SIE_PUBLIC_ORIGIN, sync: false}
+      - {key: COMMAND_PUBLIC_ORIGIN, sync: false}
+      - {key: ACADEMY_PUBLIC_ORIGIN, sync: false}
+      - {key: ANTHROPIC_API_KEY, sync: false}
+      - {key: OPENAI_API_KEY, sync: false}
+      - {key: GEMINI_API_KEY, sync: false}
+      - {key: ELEVENLABS_API_KEY, sync: false}
+      - {key: REPLICATE_API_TOKEN, sync: false}

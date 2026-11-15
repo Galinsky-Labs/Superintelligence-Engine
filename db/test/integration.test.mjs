@@ -1,8 +1,9 @@
 import test from 'node:test';import assert from 'node:assert/strict';import pg from 'pg';import {migrate,migrationFiles} from '../../scripts/migrate.mjs';
-const url=process.env.TEST_DATABASE_URL;
+import {available,testDatabase} from './database.mjs';
 test('migration files are sorted and explicit',()=>{assert.ok(migrationFiles().length>0);assert.equal(migrationFiles()[0],'001_foundation.sql');});
-test('PostgreSQL migration, foreign keys and forced RLS', {skip:!url?'requires TEST_DATABASE_URL':false},async()=>{
- const client=new pg.Client({connectionString:url});await client.connect();
+test('PostgreSQL migration, foreign keys and forced RLS', {skip:!available?'requires TEST_DATABASE_URL':false},async()=>{
+ const db=await testDatabase();
+ const client=new pg.Client({connectionString:db.url});await client.connect();
  try{
   const first=await migrate({client});assert.ok(first.some(x=>['applied','unchanged'].includes(x.status)));
   const second=await migrate({client});assert.ok(second.every(x=>x.status==='unchanged'));
@@ -14,5 +15,5 @@ test('PostgreSQL migration, foreign keys and forced RLS', {skip:!url?'requires T
   const rls=await client.query("SELECT c.relname AS tablename,c.relrowsecurity AS rowsecurity,c.relforcerowsecurity AS forcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('tenants','identities','memberships','projects','asset_metadata')");
   assert.equal(rls.rows.length,5);for(const row of rls.rows){assert.equal(row.rowsecurity,true);assert.equal(row.forcerowsecurity,true);}
   const policies=await client.query("SELECT policyname, tablename FROM pg_policies WHERE schemaname='public'");assert.ok(policies.rows.some(r=>r.policyname==='memberships_self_read'&&r.tablename==='memberships'));assert.ok(policies.rows.some(r=>r.policyname==='projects_member_read'&&r.tablename==='projects'));
- } finally {await client.end();}
+ } finally {await client.end();await db.drop();}
 });
